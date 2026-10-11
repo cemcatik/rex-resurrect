@@ -125,6 +125,56 @@ fn a_block_showing_a_full_screen_program_gets_no_scrollback_replay() {
 }
 
 #[test]
+fn a_block_restored_with_its_scrollback_saves_and_restores_again_like_any_other() {
+    // No recorder, so save falls back to the program in a block's foreground:
+    // the way the replay starts the shell mustn't look like one.
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
+    let fixture = server.create_session("zz-again", &[window(hsplit(0.5, shell(&a), shell(&b)))]);
+    server.wait_for_pwds(&fixture);
+    for block in fixture.block_ids() {
+        server.run(&fixture.id, block, "echo zz-first-run");
+        server.wait_for_capture(&fixture.id, block, "the echo", |c| {
+            c.contains("\nzz-first-run")
+        });
+    }
+
+    env.save(&server);
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-again");
+    let blocks = server.block_ids(&restored);
+    for block in &blocks {
+        server.wait_for_empty_prompt(&restored, block);
+    }
+    // One restored block starts a program; the other stays idle.
+    let tail = "tail -f /dev/null";
+    server.run(&restored, &blocks[1], tail);
+    server.wait_for_foreground(&restored, &blocks[1], "tail");
+
+    env.save(&server);
+    server.kill_session(&restored);
+    env.restore(&server);
+
+    let again = server.the_session_labelled("zz-again");
+    let blocks = server.block_ids(&again);
+    server.wait_for_empty_prompt(&again, &blocks[0]);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let idle = server.capture(&again, &blocks[0]);
+    assert!(
+        idle.trim_end().ends_with(" %"),
+        "the idle block gets no last command:\n{idle}"
+    );
+    assert!(
+        history(&idle).contains(&"zz-first-run"),
+        "its scrollback carries over from before the first restore:\n{idle}"
+    );
+    server.wait_for_typed(&again, &blocks[1], tail);
+}
+
+#[test]
 fn replayed_output_wraps_at_the_width_of_the_restored_block() {
     let env = TestEnv::new();
     let server = env.start_server();
