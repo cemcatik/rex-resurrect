@@ -26,19 +26,11 @@ pub fn run() -> Result<ExitCode> {
                 } else {
                     labels.join(", ")
                 };
-                writeln!(out, "{id}  {}  {labels}", display_time(&snapshot.taken_at))
+                writeln!(out, "{id}  {}  {labels}", snapshot.taken_at.display())
             }
             Ok(None) => continue,
             Err(e) => writeln!(out, "{id}  (unreadable: {e})"),
         };
     }
     Ok(ExitCode::SUCCESS)
-}
-
-/// `2026-10-11T07:04:49.856123Z` -> `2026-10-11 07:04:49 UTC`.
-fn display_time(rfc3339: &str) -> String {
-    match (rfc3339.get(..10), rfc3339.get(11..19)) {
-        (Some(date), Some(time)) if rfc3339.ends_with('Z') => format!("{date} {time} UTC"),
-        _ => rfc3339.to_string(),
-    }
 }

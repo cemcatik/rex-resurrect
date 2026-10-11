@@ -12,7 +12,6 @@ use crate::error::{Context, Result};
 use crate::retention::Retention;
 use crate::snapshot::Snapshot;
 use crate::state::{self, StateDir};
-use crate::timestamp::Timestamp;
 
 const SNAPSHOTS_DIR: &str = "snapshots";
 const LATEST: &str = "latest.json";
@@ -30,16 +29,11 @@ impl SnapshotStore {
         }
     }
 
-    /// Writes `snapshot` as a new timestamped file, points "latest" at it,
-    /// then removes the snapshots `retention` doesn't keep. "latest" always
-    /// points at a kept one.
-    pub fn write(
-        &self,
-        snapshot: &Snapshot,
-        taken_at: Timestamp,
-        retention: Retention,
-    ) -> Result<PathBuf> {
-        let name = format!("{}.json", taken_at.compact());
+    /// Writes `snapshot` as a new file named for when it was taken, points
+    /// "latest" at it, then removes the snapshots `retention` doesn't keep.
+    /// "latest" always points at a kept one.
+    pub fn write(&self, snapshot: &Snapshot, retention: Retention) -> Result<PathBuf> {
+        let name = format!("{}.json", snapshot.taken_at.compact());
         let path = self.snapshots.join(&name);
         let json = serde_json::to_vec_pretty(snapshot).expect("snapshots serialize");
         state::write_file(&path, &json)?;

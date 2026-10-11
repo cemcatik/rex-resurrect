@@ -140,7 +140,7 @@ fn save_snapshot(
     snapshot
         .validate()
         .with_context(|| "the snapshot failed validation, so nothing was written")?;
-    let path = SnapshotStore::new(state).write(&snapshot, taken_at, settings.retention)?;
+    let path = SnapshotStore::new(state).write(&snapshot, settings.retention)?;
     upkeep::forget_what_is_not_live(state, &live).with_context(|| {
         format!(
             "saved {}, but then failed to forget blocks and sessions that are gone",

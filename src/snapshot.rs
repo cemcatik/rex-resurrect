@@ -20,8 +20,8 @@ pub const FORMAT: u32 = 1;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Snapshot {
     pub format: u32,
-    /// RFC 3339, UTC.
-    pub taken_at: String,
+    /// Stored as RFC 3339, UTC.
+    pub taken_at: Timestamp,
     pub sessions: Vec<SavedSession>,
 }
 
@@ -29,7 +29,7 @@ impl Snapshot {
     pub fn new(taken_at: Timestamp, sessions: Vec<SavedSession>) -> Snapshot {
         Snapshot {
             format: FORMAT,
-            taken_at: taken_at.rfc3339(),
+            taken_at,
             sessions,
         }
     }
