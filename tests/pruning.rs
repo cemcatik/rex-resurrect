@@ -52,3 +52,26 @@ fn a_save_removes_recorder_files_for_blocks_that_are_not_live_and_keeps_the_othe
     let restored = server.the_session_labelled("zz-live");
     server.wait_for_typed(&restored, &server.block_ids(&restored)[0], "echo zz-live");
 }
+
+#[test]
+fn a_save_keeps_the_recorder_file_of_a_floating_block() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
+    let fixture = server.create_session("zz-float", &[window(hsplit(0.5, shell(&a), shell(&b)))]);
+    server.wait_for_pwds(&fixture);
+    let floating = fixture.block_ids()[1].to_string();
+    env.write_recorder_file(&floating, "echo zz-floating");
+    // Floating blocks aren't saved, but they're live.
+    server.call(
+        "session.float_block",
+        &serde_json::json!({
+            "session_id": fixture.id,
+            "block_id": floating,
+            "bounds": { "x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5 },
+        }),
+    );
+
+    env.save(&server);
+    assert!(recorder_file(&env, &floating).exists());
+}
