@@ -8,7 +8,8 @@ needs nothing else at runtime.
 
 > **Status:** early. `save` and `restore` bring back each session's label, its windows in order,
 > each window's split layout and ratios, window and block labels you set, each block's working
-> directory and, with the zsh recorder loaded, each block's last command typed at its prompt.
+> directory and each block's last command typed at its prompt: the one the zsh recorder
+> recorded or, without one, the program that was running in the block.
 > Autosave runs `save` every 15 minutes. Auto-restore is coming.
 
 ## Install
@@ -59,8 +60,36 @@ New shells pick it up. The recorder:
 - records a command as it starts, so a program still running at save time (`nvim`, a dev
   server, `claude`) counts too;
 - skips multi-line commands, keeping the previous one;
+- skips trivial commands on its ignore list (below), keeping the previous one, so the restored
+  prompt shows your last meaningful command;
 - tracks the last command itself rather than reading your history, so `SHARE_HISTORY` and
   per-directory history don't confuse it.
+
+#### The ignore list
+
+By default the recorder ignores `ls`, `ll`, `la`, `l`, `cd`, `pushd`, `popd`, `pwd`, `clear`,
+`reset` and `exit`. A command line is ignored when it runs one of these on its own, with any
+arguments: `ls -la` and `cd src` are ignored, but `cd src && make` is recorded. Commands are
+matched by name as you typed them, so an alias counts under its own name.
+
+The list is the zsh array `REX_RESURRECT_IGNORE`. You don't have to set it. To change it, set it
+in `~/.zshrc`:
+
+```sh
+# After loading the recorder: add to the defaults.
+REX_RESURRECT_IGNORE+=(htop tig)
+
+# Anywhere in ~/.zshrc: replace the defaults (before or after loading the recorder).
+REX_RESURRECT_IGNORE=(ls cd clear)
+
+# Ignore nothing but multi-line commands.
+REX_RESURRECT_IGNORE=()
+```
+
+The recorder fills in the defaults when it loads, unless `REX_RESURRECT_IGNORE` is already set.
+So adding to the list only works after loading the recorder; with oh-my-zsh, that means after
+`source $ZSH/oh-my-zsh.sh`. The list is read at every command, so a change applies straight
+away.
 
 ## Usage
 
@@ -76,9 +105,15 @@ rex-resurrect list      # list the snapshots, newest first
   labels get fresh default labels on restore, not stale copies like `Window 1a2b3c4d`. Each
   save is a new timestamped snapshot; `latest.json` points at the newest. The newest 10
   snapshots are kept (set `REX_RESURRECT_KEEP` to keep a different number).
-  - If there's nothing to save (no sessions, or only sessions with no windows left), `save`
-    writes nothing, leaves `latest.json` alone and exits 0, so a server with nothing on it
-    never replaces your latest snapshot.
+  - Untouched sessions are left out: one window holding one shell, with Rex's default window
+    and block labels, still in your home directory, and no last command. Sessions that Rex or
+    you create and then abandon therefore don't pile up across restarts. A session's own label
+    doesn't count, because Rex's generated ones (`amber-ridge`) look like any other, so a
+    session you only renamed is still untouched. A restored session keeps its last command, so
+    it doesn't turn untouched just because you haven't run anything in it since.
+  - If there's nothing to save (no sessions, or only untouched sessions or sessions with no
+    windows left), `save` writes nothing, leaves `latest.json` alone and exits 0, so a server
+    with nothing on it never replaces your latest snapshot.
   - If Rex's output doesn't have the shape rex-resurrect expects (Rex is in beta and its API
     can change) or the snapshot fails validation (every session needs a window, every split
     ratio must be between 0 and 1), `save` writes nothing, exits non-zero and says what didn't
@@ -107,6 +142,11 @@ Each restored block's last command is typed at its prompt but **never run**: pre
 resume, edit it, or clear it. Only single-line commands are typed; a block with no last
 command gets an empty prompt. A restored block keeps its last command through later saves and
 restores until you run something new in it.
+
+A block the recorder never recorded anything in, such as one whose shell started before you
+loaded the recorder, falls back to the program running in it at save time: `nvim`, a dev server
+or a nested shell comes back with its full command line typed at the prompt. Arguments come
+from `ps`, which drops their quoting. A block that was sitting at a prompt gets an empty prompt.
 
 Restore recognises sessions by where they came from, not by label: two saved sessions with the
 same label both come back, a restored session you rename still counts as live, and a session
@@ -145,8 +185,11 @@ It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which l
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
 sessions that are already live. `last-restored-instance` names the server instance restore last
 ran in, and `restore.lock` makes restores take turns. `recorder/` holds one file per block with
-its last command. `rex-resurrect.log` is the failure log. The recorder finds the state directory the same way, so set
-`REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
+its last command. Each save that writes a snapshot then removes the `recorder/` files of
+blocks that no longer exist and the `lineage.json` entries of sessions that no longer exist, so
+the directory doesn't grow forever. A save that fails or writes nothing removes nothing.
+`rex-resurrect.log` is the failure log. The recorder finds the state directory the same way, so
+set `REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
 
 Snapshots and recorder files hold commands, and commands can hold secrets, so the state
 directory is readable by you only: `save` and `restore` make it `0700` if it isn't.

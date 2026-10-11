@@ -16,8 +16,9 @@
 //! that (see `create::typed_command`).
 
 use std::path::PathBuf;
+use std::time::SystemTime;
 
-use crate::error::{Error, Result};
+use crate::error::{Context, Error, Result};
 use crate::state::{self, StateDir};
 
 const DIR: &str = "recorder";
@@ -56,6 +57,47 @@ impl RecorderFiles {
         // Through a hidden temp file and a rename, into a private directory,
         // as the format above asks.
         state::write_file(&path, format!("{command}\n").as_bytes())
+    }
+
+    /// Removes the records of blocks `is_live` says aren't live, unless they
+    /// changed at or after `kept_since`. Leaves alone temporary files (named
+    /// `.…`), which a recorder may be about to rename over a record, and
+    /// anything that isn't a file.
+    pub fn retain_live(
+        &self,
+        is_live: impl Fn(&str) -> bool,
+        kept_since: SystemTime,
+    ) -> Result<()> {
+        let listing = || format!("listing {}", self.dir.display());
+        let entries = match std::fs::read_dir(&self.dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e).with_context(listing),
+        };
+        for entry in entries {
+            let entry = entry.with_context(listing)?;
+            let name = entry.file_name();
+            let Some(block_id) = name.to_str() else {
+                continue;
+            };
+            let Some(path) = self.file(block_id) else {
+                continue;
+            };
+            if is_live(block_id) {
+                continue;
+            }
+            let metadata = entry.metadata().with_context(listing)?;
+            if !metadata.is_file() || metadata.modified().with_context(listing)? >= kept_since {
+                continue;
+            }
+            match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(e).with_context(|| format!("removing {}", path.display()));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     /// The block's recorder file. `None` for an ID that isn't a plain file

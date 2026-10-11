@@ -6,6 +6,7 @@ mod capture;
 mod cli;
 mod create;
 mod error;
+mod foreground;
 mod instance;
 mod label;
 mod lineage;
@@ -21,6 +22,7 @@ mod snapshot;
 mod state;
 mod store;
 mod timestamp;
+mod upkeep;
 mod workdir;
 
 use std::process::ExitCode;

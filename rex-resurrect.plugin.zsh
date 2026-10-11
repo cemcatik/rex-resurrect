@@ -23,6 +23,18 @@
 # - Ignores a command that spans several lines or holds any other control
 #   character, keeping the previous record: typed back at a prompt, a line
 #   break would act as Enter.
+# - Ignores the trivial commands on the ignore list, REX_RESURRECT_IGNORE,
+#   keeping the previous record, so the restored prompt shows the last
+#   meaningful command. A command line is ignored when it runs one command
+#   alone, whatever its arguments, and that command's name (as typed) is on
+#   the list: `ls -la` and `cd src` are ignored, `cd src && make` is
+#   recorded. The defaults are set when the plugin loads, unless
+#   REX_RESURRECT_IGNORE is already set:
+#     REX_RESURRECT_IGNORE+=(htop tig)    # after loading: extend the defaults
+#     REX_RESURRECT_IGNORE=(ls cd)        # anywhere: replace them
+#     REX_RESURRECT_IGNORE=()             # anywhere: ignore nothing
+#   It's read at every command, so a change applies to the next command. A
+#   space-separated string works too.
 # - Tracks the last command itself rather than reading shell history, so it
 #   stays right with SHARE_HISTORY or per-directory history.
 #
@@ -39,10 +51,27 @@
 #   `.`, then renamed over the record, so a reader never sees half a command.
 # - The recorder directory is private (0700): commands can hold secrets.
 
+# The ignore list's defaults: commands that only look or move around, or
+# clear the screen. typeset -g: oh-my-zsh sources plugins inside a function.
+(( ${+REX_RESURRECT_IGNORE} )) ||
+  typeset -ga REX_RESURRECT_IGNORE=(ls ll la l cd pushd popd pwd clear reset exit)
+
+# Whether the command line $1 is on the ignore list: one command, not joined
+# to others by `;`, `&&`, `|` and the like, whose name is in
+# REX_RESURRECT_IGNORE.
+_rex_resurrect_ignored() {
+  emulate -L zsh
+  local -a words=(${(z)1}) ignore=(${=REX_RESURRECT_IGNORE})
+  local -a separators=(';' '&' '&&' '||' '|' '|&' '&!' '&|')
+  local -a joined=(${words:*separators})
+  (( $#joined == 0 && ${ignore[(Ie)$words[1]]} ))
+}
+
 _rex_resurrect_record() {
   emulate -L zsh
   # $1 is the command line as typed (aliases unexpanded).
   [[ -n $1 && $1 != *[[:cntrl:]]* && -n $REX_BLOCK ]] || return 0
+  _rex_resurrect_ignored "$1" && return 0
   local dir
   if [[ -n $REX_RESURRECT_STATE_DIR ]]; then
     dir=$REX_RESURRECT_STATE_DIR
