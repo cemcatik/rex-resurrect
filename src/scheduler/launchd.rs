@@ -1,9 +1,13 @@
 //! The launchd scheduler: a user agent in `~/Library/LaunchAgents`, loaded
 //! into the user's GUI domain with `launchctl`.
 //!
-//! `launchctl` is found on `PATH`, and `$REX_RESURRECT_LAUNCH_AGENTS_DIR`
-//! replaces `~/Library/LaunchAgents`, so tests can install and uninstall
-//! with a stand-in `launchctl` and never touch the real launchd.
+//! For testing:
+//! - `launchctl` is found on `PATH`, and `$REX_RESURRECT_LAUNCH_AGENTS_DIR`
+//!   replaces `~/Library/LaunchAgents`, so tests can install and uninstall
+//!   with a stand-in `launchctl` and never touch the real launchd;
+//! - `$REX_RESURRECT_AUTOSAVE_LABEL` replaces the agent's label, so a
+//!   scratch agent tried out on the real launchd stays apart from the
+//!   user's own.
 
 use std::fs;
 use std::io::Write;
@@ -13,10 +17,12 @@ use std::process::{Command, Stdio};
 
 use super::{Job, Scheduler};
 use crate::error::{Context, Error, Result};
+use crate::workdir;
 
 /// The autosave agent's label: its name in launchd and its plist's file name.
 const LABEL: &str = "io.github.cemcatik.rex-resurrect.autosave";
 const AGENTS_DIR_VAR: &str = "REX_RESURRECT_LAUNCH_AGENTS_DIR";
+const LABEL_VAR: &str = "REX_RESURRECT_AUTOSAVE_LABEL";
 
 #[derive(Debug)]
 pub struct Launchd {
@@ -31,12 +37,19 @@ impl Launchd {
     pub fn from_env() -> Result<Launchd> {
         let agents_dir = match std::env::var_os(AGENTS_DIR_VAR).filter(|v| !v.is_empty()) {
             Some(dir) => PathBuf::from(dir),
-            None => std::env::home_dir()
-                .ok_or_else(|| Error::new("can't find the home directory: set HOME"))?
-                .join("Library/LaunchAgents"),
+            None => workdir::home()?.join("Library/LaunchAgents"),
         };
+        let label = match std::env::var(LABEL_VAR) {
+            Ok(label) if !label.is_empty() => label,
+            _ => LABEL.to_string(),
+        };
+        if label.contains('/') {
+            return Err(Error::new(format!(
+                "{LABEL_VAR} can't contain `/`: {label:?}"
+            )));
+        }
         Ok(Launchd {
-            label: LABEL.to_string(),
+            label,
             agents_dir,
             domain: format!("gui/{}", current_uid()),
         })

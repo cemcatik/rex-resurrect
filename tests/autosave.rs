@@ -443,6 +443,34 @@ fn an_interval_that_is_not_a_whole_number_of_minutes_installs_nothing() {
 }
 
 #[test]
+fn a_test_label_keeps_a_scratch_agent_apart_from_the_real_one() {
+    let env = TestEnv::new();
+    let launchd = FakeLaunchd::new(&env);
+    let scratch = "io.github.cemcatik.rex-resurrect.autosave.test-1234";
+    let autosave = |action: &str| {
+        launchd
+            .aim(env.resurrect_at(NO_SERVER))
+            .env("REX_RESURRECT_AUTOSAVE_LABEL", scratch)
+            .args(["autosave", action])
+            .run()
+            .assert_success()
+    };
+
+    autosave("install");
+    assert_eq!(launchd.the_agent().label(), scratch);
+    assert!(
+        launchd
+            .agents_dir()
+            .join(format!("{scratch}.plist"))
+            .is_file()
+    );
+
+    autosave("uninstall");
+    assert!(launchd.installed().is_empty());
+    assert!(launchd.loaded().is_empty());
+}
+
+#[test]
 fn install_without_rex_on_path_fails_and_installs_nothing() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
