@@ -135,8 +135,6 @@ impl RecorderFiles {
     /// The block's recorder file. `None` for an ID that isn't a plain file
     /// name, so no ID can reach outside the recorder directory.
     fn file(&self, block_id: &str) -> Option<PathBuf> {
-        let plain =
-            !block_id.is_empty() && !block_id.starts_with('.') && !block_id.contains(['/', '\0']);
-        plain.then(|| self.dir.join(block_id))
+        state::is_plain_file_name(block_id).then(|| self.dir.join(block_id))
     }
 }

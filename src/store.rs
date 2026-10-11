@@ -68,8 +68,7 @@ impl SnapshotStore {
         for entry in entries {
             let entry = entry.with_context(|| format!("listing {}", self.snapshots.display()))?;
             let name = entry.file_name();
-            let id = name.to_str().and_then(|name| name.strip_suffix(".json"));
-            if let Some(id) = id.filter(|id| !id.is_empty() && !id.starts_with('.')) {
+            if let Some(id) = name.to_str().and_then(snapshot_id) {
                 ids.push(id.to_string());
             }
         }
@@ -79,7 +78,7 @@ impl SnapshotStore {
 
     /// The snapshot `list` shows as `id`, or `None` if there's no such snapshot.
     pub fn read(&self, id: &str) -> Result<Option<Snapshot>> {
-        if id.is_empty() || id.starts_with('.') || id.contains('/') {
+        if !state::is_plain_file_name(id) {
             return Ok(None);
         }
         read_snapshot(&self.snapshots.join(format!("{id}.json")))
@@ -96,11 +95,16 @@ impl SnapshotStore {
     }
 }
 
-/// A snapshot's file name, as `list` picks them: `<timestamp>.json`, not a
-/// hidden file such as [`state::write_file`]'s temp files.
+/// The identifier of the snapshot in the file `name`, if it's a snapshot's
+/// file: `<timestamp>.json`, not a hidden file such as
+/// [`state::write_file`]'s temp files.
+fn snapshot_id(name: &str) -> Option<&str> {
+    name.strip_suffix(".json")
+        .filter(|id| state::is_plain_file_name(id))
+}
+
 fn is_snapshot_file(name: &OsStr) -> bool {
-    let name = name.to_string_lossy();
-    name.ends_with(".json") && !name.starts_with('.')
+    name.to_str().and_then(snapshot_id).is_some()
 }
 
 fn read_snapshot(path: &Path) -> Result<Option<Snapshot>> {

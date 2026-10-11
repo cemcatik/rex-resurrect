@@ -201,9 +201,7 @@ impl SnapshotScrollback {
                 state::read_file(file)?.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
             ),
         };
-        let plain =
-            !block_id.is_empty() && !block_id.starts_with('.') && !block_id.contains(['/', '\0']);
-        let Some(content) = content.filter(|_| plain) else {
+        let Some(content) = content.filter(|_| state::is_plain_file_name(block_id)) else {
             return Ok(None);
         };
         let name = format!("{block_id}.vt");

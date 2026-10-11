@@ -118,6 +118,14 @@ pub fn temp_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{name}.{}.tmp", std::process::id()))
 }
 
+/// Whether `name`, taken from outside (a block ID, a snapshot ID), can name
+/// a state file directly inside a directory: not empty, no `/` or NUL, so it
+/// can't reach anywhere else, and not hidden, so it can't be a temporary
+/// file.
+pub fn is_plain_file_name(name: &str) -> bool {
+    !name.is_empty() && !name.starts_with('.') && !name.contains(['/', '\0'])
+}
+
 /// Whether `name` is one of [`temp_path`]'s: `.<name>.<pid>.tmp`.
 pub fn is_temp_name(name: &str) -> bool {
     name.strip_prefix('.')
