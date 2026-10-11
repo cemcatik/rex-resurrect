@@ -206,7 +206,8 @@ impl Server {
 
     /// Like [`Server::try_call`], panicking on failure.
     pub fn call(&self, method: &str, args: &Value) -> Value {
-        self.try_call(method, args).unwrap_or_else(|e| panic!("{e}"))
+        self.try_call(method, args)
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
     pub fn status(&self) -> Value {
@@ -238,7 +239,10 @@ impl Server {
 
     /// Creates a fixture session. Fixture labels must start with `zz-`.
     pub fn create_session(&self, label: &str, windows: &[Window]) -> FixtureSession {
-        assert!(label.starts_with("zz-"), "fixture labels use the zz- prefix");
+        assert!(
+            label.starts_with("zz-"),
+            "fixture labels use the zz- prefix"
+        );
         let request = json!({
             "label": label,
             "initial_windows": windows.iter().map(Window::to_json).collect::<Vec<_>>(),
@@ -263,7 +267,13 @@ impl Server {
     }
 
     /// Calls a terminal block method through the `block.method` wrapper.
-    pub fn block_method(&self, session_id: &str, block_id: &str, method: &str, args: Value) -> Value {
+    pub fn block_method(
+        &self,
+        session_id: &str,
+        block_id: &str,
+        method: &str,
+        args: Value,
+    ) -> Value {
         self.call(
             "block.method",
             &json!({ "session_id": session_id, "block_id": block_id, "method": method, "args": args }),
@@ -284,7 +294,9 @@ impl Server {
 
     /// Waits until the block's shell reports a working directory.
     pub fn wait_for_pwd(&self, session_id: &str, block_id: &str) -> String {
-        wait_for(&format!("pwd of {block_id}"), || self.pwd(session_id, block_id))
+        wait_for(&format!("pwd of {block_id}"), || {
+            self.pwd(session_id, block_id)
+        })
     }
 
     /// Waits until the block's shell reports exactly `expected`.
@@ -312,7 +324,9 @@ impl Server {
     pub fn capture(&self, session_id: &str, block_id: &str) -> String {
         let out = self
             .rex()
-            .args(["capture", "-s", session_id, "-b", block_id, "--trim", "--unwrap"])
+            .args([
+                "capture", "-s", session_id, "-b", block_id, "--trim", "--unwrap",
+            ])
             .output()
             .unwrap();
         assert_success("rex capture", &out);
@@ -340,7 +354,9 @@ impl Server {
     pub fn window_shapes(&self, session_id: &str) -> Vec<Shape> {
         tiled_layouts(&self.view(session_id))
             .into_iter()
-            .map(|layout| layout.map_blocks(&mut |block_id| self.wait_for_pwd(session_id, &block_id)))
+            .map(|layout| {
+                layout.map_blocks(&mut |block_id| self.wait_for_pwd(session_id, &block_id))
+            })
             .collect()
     }
 
@@ -402,12 +418,13 @@ pub fn decode_file_url(url: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                out.push(hi << 4 | lo);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2]))
+        {
+            out.push(hi << 4 | lo);
+            i += 3;
+            continue;
         }
         out.push(bytes[i]);
         i += 1;
@@ -417,7 +434,8 @@ pub fn decode_file_url(url: &str) -> String {
 
 /// Polls `f` until it returns `Some`, panicking after [`WAIT`].
 pub fn wait_for<T>(what: &str, f: impl FnMut() -> Option<T>) -> T {
-    wait_for_or_none(WAIT, f).unwrap_or_else(|| panic!("timed out after {WAIT:?} waiting for {what}"))
+    wait_for_or_none(WAIT, f)
+        .unwrap_or_else(|| panic!("timed out after {WAIT:?} waiting for {what}"))
 }
 
 /// Polls `f` until it returns `Some` or `timeout` passes.

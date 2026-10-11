@@ -24,9 +24,15 @@ fn restoring_twice_creates_no_duplicates() {
 
     let first = env.restore(&server);
     assert_eq!(first.lines_starting("created").len(), 1, "{first}");
-    assert!(first.lines_starting("created")[0].contains("zz-one"), "{first}");
+    assert!(
+        first.lines_starting("created")[0].contains("zz-one"),
+        "{first}"
+    );
     assert_eq!(first.lines_starting("skipped").len(), 1, "{first}");
-    assert!(first.lines_starting("skipped")[0].contains("zz-two"), "{first}");
+    assert!(
+        first.lines_starting("skipped")[0].contains("zz-two"),
+        "{first}"
+    );
 
     let second = env.restore(&server);
     assert!(second.lines_starting("created").is_empty(), "{second}");
@@ -73,7 +79,10 @@ fn sessions_sharing_a_label_are_both_restored_and_a_renamed_one_is_still_recogni
     dirs.sort_by_key(|shapes| format!("{shapes:?}"));
     assert_eq!(
         dirs,
-        [vec![shell(&left).expected_shape()], vec![shell(&right).expected_shape()]],
+        [
+            vec![shell(&left).expected_shape()],
+            vec![shell(&right).expected_shape()]
+        ],
     );
 
     server.rename_session(&twins[0], "zz-renamed");
@@ -100,7 +109,11 @@ fn a_session_created_by_hand_under_a_saved_label_does_not_count_as_live() {
         .into_iter()
         .filter(|id| *id != by_hand.id)
         .collect();
-    assert_eq!(restored.len(), 1, "the saved zz-proj restored next to the hand-made one");
+    assert_eq!(
+        restored.len(),
+        1,
+        "the saved zz-proj restored next to the hand-made one"
+    );
     assert_eq!(
         server.window_shapes(&restored[0]),
         [shell(&saved_dir).expected_shape()]

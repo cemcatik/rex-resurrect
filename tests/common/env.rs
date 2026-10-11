@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -125,6 +126,23 @@ impl TestEnv {
         let mut env = self.child_env();
         env.insert("REX_SERVER".into(), endpoint.into());
         ResurrectCmd::new(env)
+    }
+
+    /// The pid of a Rex server answering at `endpoint`, if any.
+    pub fn server_pid_at(&self, endpoint: &str) -> Option<u64> {
+        let out = Command::new(super::server::rex_bin())
+            .args(["-S", endpoint, "--autostart=false", "--timeout", "2s"])
+            .args(["api", "call", "server.status"])
+            .env_clear()
+            .envs(self.child_env())
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        if !out.status.success() {
+            return None;
+        }
+        let status: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        status["pid"].as_u64()
     }
 
     /// Runs `rex-resurrect save` against `server` and asserts it succeeded.

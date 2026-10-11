@@ -98,7 +98,11 @@ impl RunOutput {
     }
 
     pub fn assert_failure(self) -> Self {
-        assert!(!self.status.success(), "{} unexpectedly succeeded: {self}", self.command);
+        assert!(
+            !self.status.success(),
+            "{} unexpectedly succeeded: {self}",
+            self.command
+        );
         self
     }
 

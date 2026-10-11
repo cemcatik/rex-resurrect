@@ -24,7 +24,11 @@ fn restore_recreates_windows_splits_ratios_and_working_directories() {
 
     // The last block moves after it started: save must read where it is now.
     let moved_block = &fixture.windows[1].block_ids[2];
-    server.write(&fixture.id, moved_block, &format!("cd '{}'\n", moved.display()));
+    server.write(
+        &fixture.id,
+        moved_block,
+        &format!("cd '{}'\n", moved.display()),
+    );
     server.wait_for_pwd_eq(&fixture.id, moved_block, &moved);
 
     env.save(&server);
@@ -52,7 +56,11 @@ fn a_block_that_never_reported_a_directory_restores_in_its_foreground_process_di
     let fixture = server.create_session("zz-quiet", &[window(layout())]);
     let [talking, silent] = [0, 1].map(|i| fixture.windows[0].block_ids[i].as_str());
     server.wait_for_pwd(&fixture.id, talking);
-    assert_eq!(server.pwd(&fixture.id, silent), None, "the sleep block reports no pwd");
+    assert_eq!(
+        server.pwd(&fixture.id, silent),
+        None,
+        "the sleep block reports no pwd"
+    );
 
     env.save(&server);
     server.kill_session(&fixture.id);
