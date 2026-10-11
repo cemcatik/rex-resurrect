@@ -1,15 +1,16 @@
 //! The only way rex-resurrect talks to Rex: the `rex` CLI's `api call`.
 //!
-//! Every call is `rex [-S <REX_SERVER>] --autostart=false api call METHOD -`
+//! Every call is `rex [-S <endpoint>] --autostart=false api call METHOD -`
 //! with the arguments as JSON on stdin and the result as JSON on stdout.
 //!
 //! - `--autostart=false` always: otherwise a save that runs while Rex is quit
 //!   would start an empty server.
-//! - `-S` explicitly whenever `REX_SERVER` is set: if that server isn't
-//!   running, a bare `rex` silently falls back to its default endpoint, which
-//!   may be a different (real) server.
+//! - `-S` explicitly whenever there's an endpoint: `REX_SERVER`, or one given
+//!   ([`Rex::at`]). If that server isn't running, a bare `rex` silently falls
+//!   back to its default endpoint, which may be a different (real) server.
 
 pub mod api;
+pub mod server_process;
 
 use std::ffi::OsString;
 use std::fmt;
@@ -17,6 +18,7 @@ use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -37,7 +39,21 @@ pub const SERVER_VAR: &str = "REX_SERVER";
 /// `$XDG_RUNTIME_DIR/rex/server.sock` instead, which isn't the app's.)
 /// Percent-encoded, as Rex writes `REX_SERVER`.
 pub fn app_server_endpoint(home: &Path) -> String {
-    let socket = home.join("Library/Application Support/rex/server.sock");
+    unix_endpoint(&home.join("Library/Application Support/rex/server.sock"))
+}
+
+/// rex's default endpoint, the one `rex` dials without `-S` or `REX_SERVER`:
+/// `$XDG_RUNTIME_DIR/rex/server.sock` when `XDG_RUNTIME_DIR` is set,
+/// otherwise the Rex app's server.
+pub fn default_endpoint(xdg_runtime_dir: Option<&Path>, home: &Path) -> String {
+    match xdg_runtime_dir {
+        Some(dir) => unix_endpoint(&dir.join("rex/server.sock")),
+        None => app_server_endpoint(home),
+    }
+}
+
+/// The endpoint of a Unix socket, percent-encoded as Rex writes it.
+fn unix_endpoint(socket: &Path) -> String {
     let mut endpoint = String::from("unix://");
     for &byte in socket.as_os_str().as_bytes() {
         if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
@@ -54,6 +70,7 @@ pub fn app_server_endpoint(home: &Path) -> String {
 pub struct Rex {
     program: OsString,
     server: Option<OsString>,
+    timeout: Option<Duration>,
 }
 
 /// Why a `rex` call failed.
@@ -115,6 +132,27 @@ impl Rex {
         Rex {
             program: "rex".into(),
             server: std::env::var_os(SERVER_VAR).filter(|s| !s.is_empty()),
+            timeout: None,
+        }
+    }
+
+    /// The server at `endpoint`, reached through the `rex` CLI at `program`.
+    pub fn at(program: impl Into<OsString>, endpoint: impl Into<OsString>) -> Rex {
+        Rex {
+            program: program.into(),
+            server: Some(endpoint.into()),
+            timeout: None,
+        }
+    }
+
+    /// This server, with each call given up after `timeout` (rex's own
+    /// default is 10 seconds). A server that hasn't finished starting
+    /// accepts connections but answers nothing, so a call to it waits that
+    /// long and fails.
+    pub fn with_timeout(&self, timeout: Duration) -> Rex {
+        Rex {
+            timeout: Some(timeout),
+            ..self.clone()
         }
     }
 
@@ -128,6 +166,9 @@ impl Rex {
         let mut cmd = Command::new(&self.program);
         if let Some(server) = &self.server {
             cmd.arg("-S").arg(server);
+        }
+        if let Some(timeout) = self.timeout {
+            cmd.arg(format!("--timeout={}ms", timeout.as_millis().max(1)));
         }
         let spawned = cmd
             .args(["--autostart=false", "api", "call", method, "-"])

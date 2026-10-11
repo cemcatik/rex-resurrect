@@ -31,6 +31,8 @@ pub enum Direction {
 
 #[derive(Debug, Deserialize)]
 pub struct ServerStatus {
+    /// The server's process.
+    pub pid: u32,
     /// New for every run of the server (a server instance).
     pub instance_id: String,
     /// The local server's host; equals the `host_id` of every local block.

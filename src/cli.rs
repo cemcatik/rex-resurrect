@@ -7,6 +7,7 @@
 use std::ffi::OsString;
 use std::fmt;
 
+use crate::auto_restore::AutoRestoreOptions;
 use crate::autosave::{AutosaveCommand, InstallOptions};
 use crate::list::ListOptions;
 use crate::restore::RestoreOptions;
@@ -18,6 +19,7 @@ pub enum Command {
     Restore(RestoreOptions),
     List(ListOptions),
     Autosave(AutosaveCommand),
+    AutoRestore(AutoRestoreOptions),
     Help,
     Version,
 }
@@ -35,6 +37,9 @@ Commands:
             Run `save` every 15 minutes in the background (a launchd agent)
   autosave uninstall
             Stop autosave, and say how to remove the rest of rex-resurrect
+  auto-restore
+            For Rex's init.lua: once the server running it is ready, restore
+            into it in the background, once per server instance
   help      Show this help
 
 Restore options:
@@ -45,6 +50,10 @@ Restore options:
 
 Autosave install options:
   --interval <minutes>  Save this often instead (default: 15)
+
+Auto-restore options:
+  --server-pid <pid>  Wait for the Rex server with this pid and restore into
+                      it, in the foreground (what the background run does)
 
 Options:
   -h, --help     Show this help
@@ -57,6 +66,9 @@ Environment:
                            ~/.local/state/rex-resurrect)
   REX_RESURRECT_KEEP       How many snapshots save keeps, newest first
                            (default: 10)
+  REX_RESURRECT_READY_TIMEOUT
+                           How long auto-restore waits for the Rex server to
+                           be ready, in seconds (default: 60)
 ";
 
 #[derive(Debug)]
@@ -81,6 +93,7 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, UsageE
         "restore" => parse_restore(&mut args).map(Command::Restore),
         "list" => parse_list(&mut args).map(Command::List),
         "autosave" => parse_autosave(&mut args).map(Command::Autosave),
+        "auto-restore" => parse_auto_restore(&mut args).map(Command::AutoRestore),
         "help" => Ok(Command::Help),
         "-V" | "--version" | "version" => Ok(Command::Version),
         other => Err(UsageError(format!("unknown command {other:?}"))),
@@ -144,6 +157,22 @@ fn parse_autosave(args: &mut Args) -> Result<AutosaveCommand, UsageError> {
         },
         _ => Err(args.unexpected(&action, "autosave")),
     }
+}
+
+fn parse_auto_restore(args: &mut Args) -> Result<AutoRestoreOptions, UsageError> {
+    let mut options = AutoRestoreOptions::default();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--server-pid" => {
+                let pid = args.value(&arg)?;
+                options.server_pid = Some(pid.parse().map_err(|_| {
+                    UsageError(format!("--server-pid takes a process ID, not {pid:?}"))
+                })?);
+            }
+            _ => return Err(args.unexpected(&arg, "auto-restore")),
+        }
+    }
+    Ok(options)
 }
 
 /// The remaining arguments, as UTF-8 strings.
