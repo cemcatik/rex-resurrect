@@ -43,3 +43,45 @@ fn the_last_command_is_typed_at_the_prompt_after_restore_but_not_run() {
     server.wait_for_typed(&restored, &blocks[1], tail);
     assert!(!marker.exists(), "the typed command must not have run");
 }
+
+/// Saves, kills `session` and restores; returns the restored session (the one
+/// labelled `label`) and its first block.
+fn save_kill_restore(
+    env: &TestEnv,
+    server: &Server,
+    session: &str,
+    label: &str,
+) -> (String, String) {
+    env.save(server);
+    server.kill_session(session);
+    env.restore(server);
+    let restored = server.the_session_labelled(label);
+    let block = server.block_ids(&restored).remove(0);
+    (restored, block)
+}
+
+#[test]
+fn the_last_command_carries_forward_through_later_saves_and_restores_until_a_new_one_runs() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let fixture = server.create_session("zz-carry", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    let command = "echo zz-carried";
+    server.run(&fixture.id, fixture.block_ids()[0], command);
+    server.wait_for_capture(&fixture.id, fixture.block_ids()[0], "the echo", |c| {
+        c.contains("\nzz-carried")
+    });
+
+    // Nothing runs in the restored blocks: the command is only typed.
+    let (session, block) = save_kill_restore(&env, &server, &fixture.id, "zz-carry");
+    server.wait_for_typed(&session, &block, command);
+    let (session, block) = save_kill_restore(&env, &server, &session, "zz-carry");
+    server.wait_for_typed(&session, &block, command);
+
+    // Clear the typed command (Ctrl-U) and run a new one: it replaces the old.
+    let new_command = "echo zz-new";
+    server.write(&session, &block, &format!("\u{15}{new_command}\n"));
+    server.wait_for_capture(&session, &block, "the new echo", |c| c.contains("\nzz-new"));
+    let (session, block) = save_kill_restore(&env, &server, &session, "zz-carry");
+    server.wait_for_typed(&session, &block, new_command);
+}

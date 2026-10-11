@@ -15,9 +15,10 @@
 //! Recorders only record single-line commands, but restore doesn't rely on
 //! that (see `create::typed_command`).
 
+use std::os::unix::fs::DirBuilderExt;
 use std::path::PathBuf;
 
-use crate::error::Result;
+use crate::error::{Context, Error, Result};
 use crate::state::{self, StateDir};
 
 const DIR: &str = "recorder";
@@ -46,6 +47,19 @@ impl RecorderFiles {
         };
         let command = text.strip_suffix('\n').unwrap_or(&text);
         Ok((!command.is_empty()).then(|| command.to_string()))
+    }
+
+    /// Records `command` as the block's last command, as its recorder would.
+    pub fn record(&self, block_id: &str, command: &str) -> Result<()> {
+        let path = self
+            .file(block_id)
+            .ok_or_else(|| Error::new(format!("block ID {block_id:?} can't name a file")))?;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&self.dir)
+            .with_context(|| format!("creating {}", self.dir.display()))?;
+        state::write_file(&path, format!("{command}\n").as_bytes())
     }
 
     /// The block's recorder file. `None` for an ID that isn't a plain file
