@@ -11,7 +11,7 @@ use crate::lineage::LineageMap;
 use crate::restore::{self, CreatedBlocks};
 use crate::retention::Retention;
 use crate::rex::Rex;
-use crate::scrollback::ScrollbackStore;
+use crate::scrollback::{NoScrollbackPrograms, ScrollbackStore};
 use crate::snapshot::{SavedLayout, SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
@@ -20,6 +20,21 @@ use crate::upkeep::{self, Live};
 
 #[derive(Debug, Default)]
 pub struct SaveOptions {}
+
+/// Save's settings, from the environment.
+pub struct Settings {
+    pub retention: Retention,
+    pub no_scrollback: NoScrollbackPrograms,
+}
+
+impl Settings {
+    pub fn from_env() -> Result<Settings> {
+        Ok(Settings {
+            retention: Retention::from_env()?,
+            no_scrollback: NoScrollbackPrograms::from_env()?,
+        })
+    }
+}
 
 /// What a save did.
 pub enum Saved {
@@ -40,7 +55,7 @@ pub enum Saved {
 /// waits for it rather than saving a half-restored server.
 pub fn run(_options: &SaveOptions) -> Result<ExitCode> {
     // Configuration first: a bad setting fails before anything is restored.
-    let retention = Retention::from_env()?;
+    let settings = Settings::from_env()?;
     let rex = Rex::from_env();
     let state = StateDir::from_env()?;
     let lock = RestoreLock::acquire(&state)?;
@@ -52,7 +67,7 @@ pub fn run(_options: &SaveOptions) -> Result<ExitCode> {
         report.log_failures(&state, "save (restoring first)");
         restored_blocks = std::mem::take(&mut report.created_blocks);
     }
-    match save(&rex, &state, retention, restored_blocks)? {
+    match save(&rex, &state, settings, restored_blocks)? {
         Saved::Snapshot { path, sessions } => {
             println!("saved {sessions} session(s) to {}", path.display());
         }
@@ -71,10 +86,10 @@ pub fn run(_options: &SaveOptions) -> Result<ExitCode> {
 pub fn save(
     rex: &Rex,
     state: &StateDir,
-    retention: Retention,
+    settings: Settings,
     restored: CreatedBlocks,
 ) -> Result<Saved> {
-    let saved = save_snapshot(rex, state, retention, restored);
+    let saved = save_snapshot(rex, state, settings, restored);
     // Scrollback is kept exactly as long as its snapshot: old snapshots'
     // goes with them, and a save that wrote no snapshot (an empty server, a
     // failure) leaves none behind.
@@ -90,14 +105,14 @@ pub fn save(
 fn save_snapshot(
     rex: &Rex,
     state: &StateDir,
-    retention: Retention,
+    settings: Settings,
     restored: CreatedBlocks,
 ) -> Result<Saved> {
     // Taken first: each kept session's scrollback is saved under the
     // snapshot's name as the walk reaches it.
     let taken_at = Timestamp::now();
     let lineages = LineageMap::load(state)?;
-    let local = capture::Local::read(rex, state, taken_at, restored)?;
+    let local = capture::Local::read(rex, state, taken_at, restored, settings.no_scrollback)?;
     let mut live = Live::new();
     let mut sessions = Vec::new();
     for summary in rex.list_sessions()? {
@@ -120,7 +135,7 @@ fn save_snapshot(
     snapshot
         .validate()
         .with_context(|| "the snapshot failed validation, so nothing was written")?;
-    let path = SnapshotStore::new(state).write(&snapshot, taken_at, retention)?;
+    let path = SnapshotStore::new(state).write(&snapshot, taken_at, settings.retention)?;
     upkeep::forget_what_is_not_live(state, &live).with_context(|| {
         format!(
             "saved {}, but then failed to forget blocks and sessions that are gone",

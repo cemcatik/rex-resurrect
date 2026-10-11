@@ -150,6 +150,18 @@ and reflows when you resize the block. A block that was showing a full-screen pr
 `less`, `top`, anything on the terminal's alternate screen) gets no scrollback, so you never see
 a frozen picture of the program; its command still comes back typed at the prompt.
 
+Some programs draw their interface on the main screen instead, where Rex can't tell it from
+earlier output. A block running one of the programs listed in `REX_RESURRECT_NO_SCROLLBACK` gets
+no scrollback either. The list holds program names separated by spaces, matched against the name
+the program was run by (`claude`) and the name of its executable. It defaults to `claude` (Claude
+Code); set it to replace the default, or to an empty string for no programs:
+
+```sh
+export REX_RESURRECT_NO_SCROLLBACK="claude aider"
+```
+
+Set it where `save` sees it, and run `autosave install` again afterwards, so autosave uses it too.
+
 A block the recorder never recorded anything in, such as one whose shell started before you
 loaded the recorder, falls back to the program running in it at save time: `nvim`, a dev server
 or a nested shell comes back with its full command line typed at the prompt. Arguments come
@@ -242,7 +254,7 @@ finds it when you run it, and prints the server and state directory it chose:
   up on another one;
 - **the state directory**, resolved as above, so autosave shares snapshots with your manual
   runs and the recorder;
-- `REX_RESURRECT_KEEP`, if set;
+- `REX_RESURRECT_KEEP` and `REX_RESURRECT_NO_SCROLLBACK`, if set;
 - the directory of the `rex` on your `PATH`. Install fails if there's no `rex` on it.
 
 Run `autosave install` again after changing any of these, or after moving `rex-resurrect`.

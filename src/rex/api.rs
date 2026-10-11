@@ -11,7 +11,7 @@
 //! the current code doesn't read yet (labels, host IDs, process details).
 #![allow(dead_code)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -242,14 +242,36 @@ const LOGIN: &str = "login";
 #[derive(Debug, Deserialize)]
 pub struct ProcessInfo {
     pub pid: u32,
+    /// The name of the executable it runs, which isn't always the name it
+    /// was started by: Claude Code's `claude` is a symlink to an executable
+    /// named for its version.
     pub name: String,
     #[serde(default)]
     pub path: Option<PathBuf>,
+    /// The path it was started by (`~/.local/bin/claude`), before symlinks.
+    #[serde(default)]
+    pub invoked_path: Option<PathBuf>,
+    /// Absent for root processes.
     #[serde(default)]
     pub argv0: Option<String>,
     /// Physical path (`/private/tmp/...`). Absent for root processes.
     #[serde(default)]
     pub cwd: Option<PathBuf>,
+}
+
+impl ProcessInfo {
+    /// Every name the process goes by: its executable's, and the file names
+    /// of the path and `argv0` it was started by (the command as typed).
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        fn file_name(path: &Path) -> Option<&str> {
+            path.file_name().and_then(|name| name.to_str())
+        }
+        let invoked = self.invoked_path.as_deref().and_then(file_name);
+        let argv0 = self.argv0.as_deref().map(Path::new).and_then(file_name);
+        std::iter::once(self.name.as_str())
+            .chain(invoked)
+            .chain(argv0)
+    }
 }
 
 /// Arguments of the terminal `format` method, which renders the block's

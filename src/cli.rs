@@ -66,6 +66,9 @@ Environment:
                            ~/.local/state/rex-resurrect)
   REX_RESURRECT_KEEP       How many snapshots save keeps, newest first
                            (default: 10)
+  REX_RESURRECT_NO_SCROLLBACK
+                           Programs, separated by spaces, whose blocks save
+                           keeps no scrollback for (default: claude)
   REX_RESURRECT_READY_TIMEOUT
                            How long auto-restore waits for the Rex server to
                            be ready, in seconds (default: 60)

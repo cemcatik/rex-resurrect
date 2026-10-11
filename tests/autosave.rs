@@ -493,6 +493,27 @@ fn install_without_rex_on_path_fails_and_installs_nothing() {
 }
 
 #[test]
+fn install_hands_the_programs_whose_blocks_get_no_scrollback_on_to_autosave() {
+    let env = TestEnv::new();
+    let launchd = FakeLaunchd::new(&env);
+
+    launchd
+        .aim(env.resurrect_at(NO_SERVER))
+        .env("REX_RESURRECT_NO_SCROLLBACK", "claude aider")
+        .args(["autosave", "install"])
+        .run()
+        .assert_success();
+
+    let agent = launchd.the_agent();
+    assert!(
+        agent
+            .environment()
+            .contains(&("REX_RESURRECT_NO_SCROLLBACK", "claude aider")),
+        "{agent:?}"
+    );
+}
+
+#[test]
 fn scheduled_saves_keep_as_many_snapshots_as_install_was_told_to() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);

@@ -13,6 +13,7 @@ use crate::log::Log;
 use crate::retention::{KEEP_VAR, Retention};
 use crate::rex;
 use crate::scheduler::{self, Interval, Job};
+use crate::scrollback::NO_SCROLLBACK_VAR;
 use crate::state::{STATE_DIR_VAR, StateDir};
 use crate::workdir;
 
@@ -81,6 +82,8 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
 /// - `REX_RESURRECT_KEEP`, if set, so autosave doesn't prune the snapshots
 ///   the user wants kept (checked here, so a bad value fails now rather
 ///   than every autosave);
+/// - `REX_RESURRECT_NO_SCROLLBACK`, if set (even empty), so autosave leaves
+///   out the scrollback of the same programs as manual saves;
 /// - `PATH`: `rex`'s directory first, then the system's.
 fn job_env(state: &StateDir) -> Result<BTreeMap<String, String>> {
     let server = match std::env::var_os(rex::SERVER_VAR).filter(|s| !s.is_empty()) {
@@ -93,6 +96,9 @@ fn job_env(state: &StateDir) -> Result<BTreeMap<String, String>> {
     Retention::from_env()?;
     if let Some(keep) = std::env::var_os(KEEP_VAR).filter(|v| !v.is_empty()) {
         env.insert(KEEP_VAR.to_string(), utf8(&keep)?);
+    }
+    if let Some(programs) = std::env::var_os(NO_SCROLLBACK_VAR) {
+        env.insert(NO_SCROLLBACK_VAR.to_string(), utf8(&programs)?);
     }
     env.insert("PATH".to_string(), job_path()?);
     Ok(env)

@@ -10,7 +10,9 @@ use crate::recorder::{Recorded, RecorderFiles};
 use crate::restore::CreatedBlocks;
 use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, WindowView};
 use crate::rex::{BlockRef, Rex};
-use crate::scrollback::{ScrollbackSource, ScrollbackStore, SnapshotScrollback};
+use crate::scrollback::{
+    NoScrollbackPrograms, ScrollbackSource, ScrollbackStore, SnapshotScrollback,
+};
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedSplit, SavedWindow};
 use crate::state::StateDir;
 use crate::timestamp::Timestamp;
@@ -31,6 +33,8 @@ pub struct Local {
     pub restored: CreatedBlocks,
     /// Where the snapshot this save writes keeps its blocks' scrollback.
     pub scrollback: SnapshotScrollback,
+    /// The programs whose blocks get no scrollback.
+    pub no_scrollback: NoScrollbackPrograms,
 }
 
 impl Local {
@@ -41,6 +45,7 @@ impl Local {
         state: &StateDir,
         taken_at: Timestamp,
         restored: CreatedBlocks,
+        no_scrollback: NoScrollbackPrograms,
     ) -> Result<Local> {
         Ok(Local {
             host_id: rex.server_status()?.host_id,
@@ -48,6 +53,7 @@ impl Local {
             recorder: RecorderFiles::new(state),
             restored,
             scrollback: ScrollbackStore::new(state).for_snapshot(taken_at),
+            no_scrollback,
         })
     }
 
@@ -217,22 +223,25 @@ impl Capture<'_> {
                 scrollback: None,
             });
         }
+        let process = rex.terminal_process(session_id, block_id)?;
         let last_command = match self.local.recorder.read(block_id)? {
             Recorded::LastCommand(command) => Some(command),
             Recorded::NoLastCommand => None,
-            Recorded::Nothing => foreground::foreground_command(rex, session_id, block_id)?,
+            Recorded::Nothing => foreground::foreground_command(&process)?,
         };
         let saved = SavedBlock {
             label,
-            working_directory: workdir::working_directory(rex, session_id, block_id)?,
+            working_directory: workdir::working_directory(rex, session_id, block_id, &process)?,
             last_command,
             scrollback: None,
         };
-        self.scrollback
-            .push(Some(ScrollbackSource::Terminal(BlockRef {
+        let has_scrollback = !self.local.no_scrollback.running_in(&process);
+        self.scrollback.push(has_scrollback.then(|| {
+            ScrollbackSource::Terminal(BlockRef {
                 session_id: session_id.clone(),
                 block_id: block_id.clone(),
-            })));
+            })
+        }));
         Ok(saved)
     }
 

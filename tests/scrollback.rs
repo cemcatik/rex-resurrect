@@ -368,3 +368,97 @@ fn a_block_running_a_program_on_the_main_screen_keeps_its_scrollback() {
         "the output before the program is above the prompt:\n{capture}"
     );
 }
+
+/// A directory holding stand-ins for programs, to put first on the server's
+/// `PATH`: each a symlink to `sleep` under the program's name. Like Claude
+/// Code's own `claude`, a symlink to an executable named for its version:
+/// Rex reports the executable's name (`sleep`) and the name it was run by
+/// (`argv0`, the stand-in's).
+fn stand_ins(env: &TestEnv, names: &[&str]) -> std::path::PathBuf {
+    let dir = env.mkdir("stand-ins");
+    for name in names {
+        std::os::unix::fs::symlink("/bin/sleep", dir.join(name)).unwrap();
+    }
+    dir
+}
+
+/// Prints `printed` in `block`, then starts `command` (a stand-in and a
+/// number of seconds) and waits for it to be in the foreground.
+fn print_then_run(server: &Server, session: &str, block: &str, printed: &str, command: &str) {
+    server.run(session, block, &format!("echo {printed}"));
+    server.wait_for_capture(session, block, printed, |c| {
+        c.contains(&format!("\n{printed}"))
+    });
+    server.run(session, block, command);
+    server.wait_for_foreground(session, block, "sleep");
+}
+
+/// Claude Code draws its interface on the main screen, not the alternate
+/// one, so a replay would print a frozen copy of it. A block running it gets
+/// no scrollback; its command still comes back typed.
+#[test]
+fn a_block_running_claude_gets_no_scrollback_replay() {
+    let env = TestEnv::with_recorder();
+    let server = env
+        .server()
+        .path_prepend(stand_ins(&env, &["claude"]))
+        .start();
+    let fixture = server.create_session("zz-claude", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    print_then_run(
+        &server,
+        &fixture.id,
+        block,
+        "zz-before-claude",
+        "claude 300",
+    );
+
+    env.save(&server);
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-claude");
+    let block = server.block_ids(&restored).remove(0);
+    server.wait_for_typed(&restored, &block, "claude 300");
+    let capture = server.capture(&restored, &block);
+    assert!(
+        !capture.contains("zz-before-claude"),
+        "no replay:\n{capture}"
+    );
+}
+
+#[test]
+fn the_programs_whose_blocks_get_no_scrollback_replay_can_be_set() {
+    let env = TestEnv::with_recorder();
+    let server = env
+        .server()
+        .path_prepend(stand_ins(&env, &["claude", "dev-server"]))
+        .start();
+    let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
+    let fixture = server.create_session("zz-set", &[window(hsplit(0.5, shell(&a), shell(&b)))]);
+    server.wait_for_pwds(&fixture);
+    let [listed, unlisted] = [0, 1].map(|i| fixture.block_ids()[i]);
+    print_then_run(&server, &fixture.id, listed, "zz-listed", "dev-server 300");
+    print_then_run(&server, &fixture.id, unlisted, "zz-unlisted", "claude 300");
+
+    // The list replaces the default (`claude`).
+    env.resurrect(&server)
+        .env("REX_RESURRECT_NO_SCROLLBACK", "vim dev-server")
+        .arg("save")
+        .run()
+        .assert_success();
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-set");
+    let blocks = server.block_ids(&restored);
+    server.wait_for_typed(&restored, &blocks[0], "dev-server 300");
+    server.wait_for_typed(&restored, &blocks[1], "claude 300");
+    let [listed, unlisted] = [0, 1].map(|i| server.capture(&restored, &blocks[i]));
+    assert!(!listed.contains("zz-listed"), "no replay:\n{listed}");
+    assert!(
+        above_prompt(&unlisted).contains(&"zz-unlisted"),
+        "replayed:\n{unlisted}"
+    );
+}

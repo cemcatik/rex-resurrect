@@ -27,14 +27,55 @@
 use std::path::{Component, Path, PathBuf};
 
 use crate::account::Account;
-use crate::error::{Context, Result};
-use crate::rex::api::{FormatArgs, TerminalOptions};
+use crate::error::{Context, Error, Result};
+use crate::rex::api::{FormatArgs, TerminalOptions, TerminalProcess};
 use crate::rex::{BlockRef, Rex};
 use crate::snapshot::SavedBlock;
 use crate::state::{self, StateDir};
 use crate::timestamp::Timestamp;
 
 const DIR: &str = "scrollback";
+
+/// The variable listing the programs whose blocks get no scrollback.
+pub const NO_SCROLLBACK_VAR: &str = "REX_RESURRECT_NO_SCROLLBACK";
+
+/// Programs that draw their interface on the main screen, not the alternate
+/// one, and whose blocks therefore get no scrollback: a replay would print a
+/// frozen copy of the interface, as for a full-screen program. Claude Code
+/// (`claude`) is one.
+#[derive(Debug)]
+pub struct NoScrollbackPrograms {
+    names: Vec<String>,
+}
+
+impl NoScrollbackPrograms {
+    /// `$REX_RESURRECT_NO_SCROLLBACK`: program names separated by spaces.
+    /// `claude` if it's unset; none if it's set but empty.
+    pub fn from_env() -> Result<NoScrollbackPrograms> {
+        let Some(value) = std::env::var_os(NO_SCROLLBACK_VAR) else {
+            return Ok(NoScrollbackPrograms {
+                names: vec!["claude".to_string()],
+            });
+        };
+        let value = value.to_str().ok_or_else(|| {
+            Error::new(format!("{NO_SCROLLBACK_VAR} isn't valid UTF-8: {value:?}"))
+        })?;
+        Ok(NoScrollbackPrograms {
+            names: value.split_whitespace().map(str::to_string).collect(),
+        })
+    }
+
+    /// Whether the block whose terminal `process` method answered `process`
+    /// is running one of these programs, by any name the program goes by
+    /// (the name it was run by, or its executable's).
+    pub fn running_in(&self, process: &TerminalProcess) -> bool {
+        process.foreground_program().is_some_and(|program| {
+            program
+                .names()
+                .any(|name| self.names.iter().any(|listed| listed == name))
+        })
+    }
+}
 
 /// What the terminal `format` method's `extra_modes` prefix holds while the
 /// block is on the alternate screen (xterm's three ways to switch to it).
