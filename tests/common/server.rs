@@ -266,6 +266,15 @@ impl Server {
         );
     }
 
+    /// Sets a block's label. `""` resets it to `Block <last 8 hex of its ID>`
+    /// (not `shell`, the label a new block gets).
+    pub fn set_block_label(&self, session_id: &str, block_id: &str, label: &str) {
+        self.call(
+            "session.set_block_label",
+            &json!({ "session_id": session_id, "block_id": block_id, "label": label }),
+        );
+    }
+
     /// Calls a terminal block method through the `block.method` wrapper.
     pub fn block_method(
         &self,

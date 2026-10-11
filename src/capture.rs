@@ -1,25 +1,72 @@
 //! Turning a live session (its `session.view`) into a saved session.
 
+use std::path::PathBuf;
+
 use crate::error::{Error, Result};
+use crate::label;
 use crate::lineage::Lineage;
 use crate::recorder::RecorderFiles;
 use crate::rex::Rex;
-use crate::rex::api::{BlockView, LayerView, LayoutView, SessionView, WindowView};
+use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, WindowView};
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedSplit, SavedWindow};
+use crate::state::StateDir;
 use crate::workdir;
+
+/// What save compares blocks against and reads about them on this machine:
+/// the local server, the home directory and the recorder files.
+pub struct Local {
+    /// The local server's host. A block with a different `host_id` is a
+    /// remote block.
+    pub host_id: String,
+    /// Where a block with no working directory to save comes back.
+    pub home: PathBuf,
+    /// Each local shell block's last command.
+    pub recorder: RecorderFiles,
+}
+
+impl Local {
+    pub fn read(rex: &Rex, state: &StateDir) -> Result<Local> {
+        Ok(Local {
+            host_id: rex.server_status()?.host_id,
+            home: workdir::home()?,
+            recorder: RecorderFiles::new(state),
+        })
+    }
+
+    /// A shell block on the local server: the only kind of block whose
+    /// working directory save can read. A block without a `host_id` counts
+    /// as local.
+    fn is_local_shell(&self, block: &BlockView) -> bool {
+        block.flavor == SHELL_FLAVOR
+            && block
+                .host_id
+                .as_deref()
+                .is_none_or(|host_id| host_id == self.host_id)
+    }
+
+    /// A plain shell block (default label) in the home directory: what a
+    /// block that can't be saved as it is comes back as, so the layout around
+    /// it stays intact.
+    fn plain_shell(&self) -> SavedBlock {
+        SavedBlock {
+            label: None,
+            working_directory: self.home.clone(),
+            last_command: None,
+        }
+    }
+}
 
 pub fn saved_session(
     rex: &Rex,
-    recorder: &RecorderFiles,
+    local: &Local,
     view: &SessionView,
     lineage: Lineage,
 ) -> Result<SavedSession> {
-    let mut windows = Vec::new();
-    for window in &view.windows {
-        if let Some(saved) = saved_window(rex, recorder, view, window)? {
-            windows.push(saved);
-        }
-    }
+    let windows = view
+        .windows
+        .iter()
+        .map(|window| saved_window(rex, local, view, window))
+        .collect::<Result<_>>()?;
     Ok(SavedSession {
         lineage,
         label: view.label.clone(),
@@ -27,31 +74,34 @@ pub fn saved_session(
     })
 }
 
-/// A window's tiled layout. `None` for a window with nothing tiled (every
-/// block floated). Floating layers aren't saved.
+/// A window's tiled layout. Floating layers aren't saved. A window whose
+/// blocks have all floated away has nothing tiled; it comes back holding one
+/// plain shell, so it keeps its place among the session's windows.
 fn saved_window(
     rex: &Rex,
-    recorder: &RecorderFiles,
+    local: &Local,
     session: &SessionView,
     window: &WindowView,
-) -> Result<Option<SavedWindow>> {
+) -> Result<SavedWindow> {
     let tiled = window.tiled_layer().ok_or_else(|| {
         Error::new(format!(
             "session.view: window {} has no tiled layer",
             window.window_id
         ))
     })?;
-    let Some(layout) = &tiled.layout else {
-        return Ok(None);
+    let layout = match &tiled.layout {
+        Some(layout) => saved_layout(rex, local, session, tiled, layout)?,
+        None => SavedLayout::Block(local.plain_shell()),
     };
-    Ok(Some(SavedWindow {
-        layout: saved_layout(rex, recorder, session, tiled, layout)?,
-    }))
+    Ok(SavedWindow {
+        label: label::user_set_window_label(window).map(str::to_owned),
+        layout,
+    })
 }
 
 fn saved_layout(
     rex: &Rex,
-    recorder: &RecorderFiles,
+    local: &Local,
     session: &SessionView,
     layer: &LayerView,
     node: &LayoutView,
@@ -63,28 +113,33 @@ fn saved_layout(
                     "session.view: block {block_id} is in a layout but not in its layer's blocks"
                 ))
             })?;
-            Ok(SavedLayout::Block(saved_block(
-                rex, recorder, session, block,
-            )?))
+            Ok(SavedLayout::Block(saved_block(rex, local, session, block)?))
         }
         LayoutView::Split(split) => Ok(SavedLayout::Split(SavedSplit {
             direction: split.direction,
             ratio: split.ratio,
-            before: Box::new(saved_layout(rex, recorder, session, layer, &split.before)?),
-            after: Box::new(saved_layout(rex, recorder, session, layer, &split.after)?),
+            before: Box::new(saved_layout(rex, local, session, layer, &split.before)?),
+            after: Box::new(saved_layout(rex, local, session, layer, &split.after)?),
         })),
     }
 }
 
-/// The block's recorder file is the source of truth for its last command.
+/// A local shell block in its working directory, with its recorder file as
+/// the source of truth for its last command. A non-terminal block has no
+/// working directory, and a remote block's is on another host, so either is
+/// saved as a plain shell in the home directory.
 fn saved_block(
     rex: &Rex,
-    recorder: &RecorderFiles,
+    local: &Local,
     session: &SessionView,
     block: &BlockView,
 ) -> Result<SavedBlock> {
+    if !local.is_local_shell(block) {
+        return Ok(local.plain_shell());
+    }
     Ok(SavedBlock {
+        label: label::user_set_block_label(block).map(str::to_owned),
         working_directory: workdir::working_directory(rex, &session.session_id, &block.block_id)?,
-        last_command: recorder.last_command(&block.block_id)?,
+        last_command: local.recorder.last_command(&block.block_id)?,
     })
 }
