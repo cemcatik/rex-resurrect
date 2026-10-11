@@ -1,16 +1,17 @@
 //! `rex-resurrect save`: snapshot every session on the server.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::capture;
+use crate::create;
 use crate::error::{Context, Result};
 use crate::instance::RestoreLock;
 use crate::lineage::LineageMap;
 use crate::restore;
 use crate::retention::Retention;
 use crate::rex::Rex;
-use crate::snapshot::{SavedSession, Snapshot};
+use crate::snapshot::{SavedLayout, SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 use crate::timestamp::Timestamp;
@@ -73,7 +74,7 @@ pub fn save(
         let lineage = lineages.lineage_of(&view.session_id);
         let saved = capture::saved_session(rex, &local, &view, lineage)
             .with_context(|| format!("saving session {:?} ({})", view.label, view.session_id))?;
-        if worth_saving(&saved) {
+        if worth_saving(&saved, &local.home) {
             sessions.push(saved);
         }
     }
@@ -96,7 +97,40 @@ pub fn save(
 /// session does is an empty server, and saving from it writes nothing.
 ///
 /// A session that saved no windows has nothing to restore. Rex keeps a
-/// session live, with no windows, after its last shell exits.
-fn worth_saving(session: &SavedSession) -> bool {
-    !session.windows.is_empty()
+/// session live, with no windows, after its last shell exits. Neither has an
+/// untouched session.
+fn worth_saving(session: &SavedSession, home: &Path) -> bool {
+    !session.windows.is_empty() && !is_untouched(session, home)
+}
+
+/// An untouched session: one window holding one shell block, with default
+/// window and block labels, its working directory still `home` and no last
+/// command. Restoring it would bring back nothing a new session doesn't
+/// have. Its label doesn't count: Rex's generated session labels can't be
+/// told apart from user-set ones.
+///
+/// Judged from the session as saved, so a last command counts however save
+/// found it, including one restore carried forward. "No last command" means
+/// none that restore would type.
+fn is_untouched(session: &SavedSession, home: &Path) -> bool {
+    let [window] = session.windows.as_slice() else {
+        return false;
+    };
+    let SavedLayout::Block(block) = &window.layout else {
+        return false;
+    };
+    window.label.is_none()
+        && block.label.is_none()
+        && create::typed_command(block).is_none()
+        && same_directory(&block.working_directory, home)
+}
+
+/// Whether two paths name the same directory: equal, or equal once symlinks
+/// are resolved (a shell's logical `/tmp/x` and its physical `/private/tmp/x`).
+fn same_directory(a: &Path, b: &Path) -> bool {
+    a == b
+        || matches!(
+            (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+            (Ok(a), Ok(b)) if a == b
+        )
 }
