@@ -74,4 +74,8 @@ pub struct SavedSplit {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SavedBlock {
     pub working_directory: PathBuf,
+    /// The block's recorder file, as found: it may not be typeable (see
+    /// `create::typed_command`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_command: Option<String>,
 }

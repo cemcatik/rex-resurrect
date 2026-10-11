@@ -6,6 +6,7 @@ mod cli;
 mod create;
 mod error;
 mod lineage;
+mod recorder;
 mod restore;
 mod rex;
 mod save;

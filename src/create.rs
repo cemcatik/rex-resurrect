@@ -32,14 +32,28 @@ fn create_layout(layout: &SavedLayout) -> CreateLayout {
     }
 }
 
-/// Every block comes back as a plain shell block in its saved directory.
+/// Every block comes back as a plain shell block in its saved directory,
+/// with its last command typed at the prompt.
 fn create_block(block: &SavedBlock) -> CreateBlock {
     CreateBlock {
         flavor: SHELL_FLAVOR.to_string(),
         label: None,
         options: TerminalOptions {
             cwd: Some(block.working_directory.clone()),
-            initial_input: None,
+            initial_input: typed_command(block).map(str::to_string),
         },
     }
+}
+
+/// The command restore types at a block's prompt: its last command, only if
+/// it's a single line without control characters. Rex writes `initial_input`
+/// to the terminal as if typed, so a line break would act as Enter and run
+/// what came before it (other control characters can be editor keys too).
+/// Recorders already skip such commands; this check doesn't trust them, or
+/// the snapshot.
+pub fn typed_command(block: &SavedBlock) -> Option<&str> {
+    block
+        .last_command
+        .as_deref()
+        .filter(|command| !command.is_empty() && !command.chars().any(char::is_control))
 }

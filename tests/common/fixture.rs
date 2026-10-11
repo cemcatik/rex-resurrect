@@ -229,6 +229,18 @@ impl Shape {
         }
     }
 
+    /// Each block's string, in layout (depth-first, before-then-after) order.
+    pub fn leaves(&self) -> Vec<String> {
+        match self {
+            Shape::Block(s) => vec![s.clone()],
+            Shape::Split { before, after, .. } => {
+                let mut leaves = before.leaves();
+                leaves.extend(after.leaves());
+                leaves
+            }
+        }
+    }
+
     /// Replaces each block's path with its canonical form (`/tmp` ->
     /// `/private/tmp` on macOS), for comparing logical and physical paths.
     pub fn canonicalized(self) -> Shape {

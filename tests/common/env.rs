@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use super::resurrect::ResurrectCmd;
 use super::server::{Server, ServerBuilder};
 use super::tempdir::TempDir;
-use super::zsh::ZshConfig;
+use super::zsh::{self, ZshConfig};
 
 /// Variables copied from the test process into every child environment.
 /// Everything else is dropped: in particular `REX_BLOCK`, `REX_SESSION`,
@@ -78,6 +78,14 @@ impl TestEnv {
 
     pub fn builder() -> TestEnvBuilder {
         TestEnvBuilder::default()
+    }
+
+    /// A `TestEnv` whose fixture blocks load the zsh recorder plugin with a
+    /// plain `source`.
+    pub fn with_recorder() -> TestEnv {
+        TestEnv::builder()
+            .zshrc_line(format!("source {}", zsh::quote(&zsh::recorder_plugin())))
+            .build()
     }
 
     /// The temp directory everything lives in (`/tmp/rxt.<pid>-<n>`).

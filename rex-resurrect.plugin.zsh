@@ -1,0 +1,89 @@
+# rex-resurrect.plugin.zsh: the rex-resurrect recorder for zsh.
+#
+# Records each command a Rex block's shell starts as that block's last
+# command. After the Rex server restarts, `rex-resurrect restore` types it
+# back at the block's prompt, never running it.
+#
+# Load it from ~/.zshrc, either way:
+#   source /path/to/rex-resurrect.plugin.zsh
+#   plugins=(... rex-resurrect)    # oh-my-zsh, with this file at
+#                                  # $ZSH_CUSTOM/plugins/rex-resurrect/rex-resurrect.plugin.zsh
+#
+# Behaviour:
+# - Only inside Rex: without REX_BLOCK (other terminals, tmux outside Rex)
+#   it does nothing and writes nothing.
+# - Only in the block's outermost shell. Nested shells (`nix develop`,
+#   `poetry shell`, a `zsh` started by hand) inherit REX_BLOCK, so the first
+#   shell to load the recorder in a block exports
+#   _REX_RESURRECT_RECORDER="<its PID> <block ID>". A shell that finds its own
+#   block there under a different PID is nested and stays silent. `exec zsh`
+#   keeps the PID, so the outermost shell carries on recording after it.
+# - Records from zsh's preexec hook, as a command starts, so a program still
+#   running at save time (nvim, a dev server) counts too.
+# - Ignores a command that spans several lines or holds any other control
+#   character, keeping the previous record: typed back at a prompt, a line
+#   break would act as Enter.
+# - Tracks the last command itself rather than reading shell history, so it
+#   stays right with SHARE_HISTORY or per-directory history.
+#
+# Recorder files, the contract between recorders (whatever their shell) and
+# rex-resurrect:
+# - Path: <state dir>/recorder/<block ID>, the block ID exactly as REX_BLOCK
+#   holds it (recorder/block:01a129c9-08f8-74b3-b44a-5573c12596b0).
+# - State dir, first match wins: $REX_RESURRECT_STATE_DIR;
+#   $XDG_STATE_HOME/rex-resurrect when XDG_STATE_HOME is absolute;
+#   $HOME/.local/state/rex-resurrect.
+# - Contents: the block's last command, UTF-8 text on one line, ending in a
+#   newline (readers accept it without one). Only the latest is kept.
+# - Written to a temporary file in the same directory whose name starts with
+#   `.`, then renamed over the record, so a reader never sees half a command.
+# - The recorder directory is private (0700): commands can hold secrets.
+
+_rex_resurrect_record() {
+  emulate -L zsh
+  # $1 is the command line as typed (aliases unexpanded).
+  [[ -n $1 && $1 != *[[:cntrl:]]* && -n $REX_BLOCK ]] || return 0
+  local dir
+  if [[ -n $REX_RESURRECT_STATE_DIR ]]; then
+    dir=$REX_RESURRECT_STATE_DIR
+  elif [[ $XDG_STATE_HOME == /* ]]; then
+    dir=$XDG_STATE_HOME/rex-resurrect
+  elif [[ -n $HOME ]]; then
+    dir=$HOME/.local/state/rex-resurrect
+  else
+    return 0
+  fi
+  dir+=/recorder
+  local file=$dir/$REX_BLOCK tmp=$dir/.$REX_BLOCK.$$
+  {
+    if [[ ! -d $dir ]]; then
+      if (( $+builtins[zf_mkdir] )); then
+        zf_mkdir -p -m 700 $dir
+      else
+        command mkdir -p -m 700 $dir
+      fi || return 0
+    fi
+    print -r -- "$1" >| $tmp || return 0
+    if (( $+builtins[zf_mv] )); then
+      zf_mv -f $tmp $file
+    else
+      command mv -f $tmp $file
+    fi
+  } 2>/dev/null
+}
+
+() {
+  emulate -L zsh
+  [[ -n $REX_BLOCK ]] || return 0
+  # REX_BLOCK names a file: never let it point outside the recorder directory.
+  [[ $REX_BLOCK != *[^[:alnum:]:._-]* && $REX_BLOCK != .* ]] || return 0
+  if [[ $_REX_RESURRECT_RECORDER == *" $REX_BLOCK" &&
+        $_REX_RESURRECT_RECORDER != "$$ $REX_BLOCK" ]]; then
+    return 0  # a nested shell: the block's outermost shell records
+  fi
+  export _REX_RESURRECT_RECORDER="$$ $REX_BLOCK"
+  # Builtin mkdir/mv, so recording a command never forks.
+  zmodload -F zsh/files b:zf_mkdir b:zf_mv 2>/dev/null
+  autoload -Uz add-zsh-hook
+  add-zsh-hook preexec _rex_resurrect_record
+}
