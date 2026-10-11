@@ -53,10 +53,13 @@ impl LineageMap {
         self.restored.insert(session_id.to_string(), lineage);
     }
 
-    /// Forgets sessions that aren't live any more. Session IDs are never
-    /// reused, so their entries can't matter again.
-    pub fn retain_live(&mut self, is_live: impl Fn(&str) -> bool) {
+    /// Forgets sessions that aren't live any more, and says whether there
+    /// were any. Session IDs are never reused, so their entries can't matter
+    /// again.
+    pub fn retain_live(&mut self, is_live: impl Fn(&str) -> bool) -> bool {
+        let before = self.restored.len();
         self.restored.retain(|session_id, _| is_live(session_id));
+        self.restored.len() != before
     }
 
     pub fn save(&self) -> Result<()> {

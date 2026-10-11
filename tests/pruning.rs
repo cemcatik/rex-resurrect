@@ -69,6 +69,38 @@ fn a_save_that_fails_to_write_its_snapshot_removes_no_recorder_files() {
     assert!(recorder_file(&env, &gone_block).exists());
 }
 
+/// Whether rex-resurrect's lineage map mentions `session_id` at all.
+fn lineage_map_mentions(env: &TestEnv, session_id: &str) -> bool {
+    std::fs::read_to_string(env.state_dir().join("lineage.json"))
+        .unwrap_or_default()
+        .contains(session_id)
+}
+
+#[test]
+fn a_save_removes_lineage_entries_for_sessions_that_are_not_live_and_keeps_the_others() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let (kept, _) = session_with_one_block(&env, &server, "zz-kept");
+    let (dropped, _) = session_with_one_block(&env, &server, "zz-dropped");
+    env.save(&server);
+    server.kill_session(&kept);
+    server.kill_session(&dropped);
+    env.restore(&server);
+    let restored_dropped = server.the_session_labelled("zz-dropped");
+    assert!(lineage_map_mentions(&env, &restored_dropped));
+    server.kill_session(&restored_dropped);
+
+    env.save(&server);
+    assert!(
+        !lineage_map_mentions(&env, &restored_dropped),
+        "the lineage entry of a session that isn't live is removed"
+    );
+    // The live restored session is still recognised as its saved session.
+    let again = env.restore(&server);
+    assert!(again.lines_starting("created").is_empty(), "{again}");
+    assert_eq!(again.lines_starting("skipped").len(), 1, "{again}");
+}
+
 #[test]
 fn a_save_keeps_the_recorder_file_of_a_floating_block() {
     let env = TestEnv::new();
