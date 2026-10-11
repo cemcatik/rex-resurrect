@@ -125,6 +125,52 @@ fn a_block_showing_a_full_screen_program_gets_no_scrollback_replay() {
 }
 
 #[test]
+fn replayed_output_wraps_at_the_width_of_the_restored_block() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let fixture = server.create_session("zz-wrap", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    // Saved from a block 60 columns wide.
+    server.resize(&fixture.id, block, 60, 24);
+    let long = format!("zz-long-{}-end", "abcdefghij".repeat(15));
+    server.run(&fixture.id, block, &format!("echo {long}"));
+    server.wait_for_capture(&fixture.id, block, "the long line", |c| {
+        c.lines().any(|line| line == long)
+    });
+
+    env.save(&server);
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-wrap");
+    let block = server.block_ids(&restored).remove(0);
+    server.wait_for_empty_prompt(&restored, &block);
+    let rows_at = |columns: usize| {
+        let rows = server.capture_rows(&restored, &block);
+        assert!(
+            rows.lines().any(|row| row == &long[..columns]),
+            "the long line wraps at {columns} columns:\n{rows}"
+        );
+        rows
+    };
+    // Restored 80 columns wide: wrapped at 80, not where it wrapped when saved.
+    let rows = rows_at(80);
+    assert!(
+        !rows.lines().any(|row| row == &long[..60]),
+        "no break left at the saved width:\n{rows}"
+    );
+    let capture = server.capture(&restored, &block);
+    assert!(
+        capture.lines().any(|line| line == long),
+        "still one line:\n{capture}"
+    );
+    // And it reflows when the block is resized later.
+    server.resize(&restored, &block, 50, 24);
+    rows_at(50);
+}
+
+#[test]
 fn a_block_running_a_program_on_the_main_screen_keeps_its_scrollback() {
     let env = TestEnv::with_recorder();
     let server = env.start_server();
