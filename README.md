@@ -36,8 +36,8 @@ rex-resurrect list      # list the snapshots, newest first
   timestamped snapshot; `latest.json` points at the newest. The newest 10 snapshots are kept
   (set `REX_RESURRECT_KEEP` to keep a different number).
   - If there's nothing to save (no sessions, or only sessions with no windows left), `save`
-    writes nothing, leaves `latest.json` alone and exits 0. A save that runs between a server
-    restart and a restore therefore can't replace the snapshot you need.
+    writes nothing, leaves `latest.json` alone and exits 0, so a server with nothing on it
+    never replaces your latest snapshot.
   - If Rex's output doesn't have the shape rex-resurrect expects (Rex is in beta and its API
     can change) or the snapshot fails validation (every session needs a window, every split
     ratio must be between 0 and 1), `save` writes nothing, exits non-zero and says what didn't
@@ -67,6 +67,14 @@ same label both come back, a restored session you rename still counts as live, a
 you created by hand under a saved label doesn't (see
 [ADR-0001](docs/adr/0001-match-sessions-by-lineage-not-label.md)).
 
+After a server restart, the first `save` restores before it saves, unless a `restore` already
+ran on that server. A save that runs on a freshly started server (an autosave, say) therefore
+can't replace your latest snapshot with a near-empty one. A save on a server already restored
+into never restores again, even if you've killed restored sessions since. A `--dry-run` or
+`--session` restore doesn't count, because it leaves sessions out; restoring a whole older
+snapshot does. Only one restore runs at a time, and a `save` that starts during a restore waits
+for it to finish.
+
 rex-resurrect never starts a Rex server. If Rex isn't running, `save` and `restore` fail and
 say so.
 
@@ -84,7 +92,8 @@ Snapshots and rex-resurrect's own bookkeeping live in its state directory:
 
 It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which live session
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
-sessions that are already live.
+sessions that are already live. `last-restored-instance` names the server instance restore last
+ran in, and `restore.lock` makes restores take turns.
 
 Snapshots can contain commands, and commands can contain secrets, so the state directory is
 readable by you only (`save` makes it `0700` if it isn't) and every file in it is written with

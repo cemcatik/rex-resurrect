@@ -5,7 +5,9 @@ use std::process::ExitCode;
 
 use crate::capture;
 use crate::error::{Context, Result};
+use crate::instance::RestoreLock;
 use crate::lineage::LineageMap;
+use crate::restore;
 use crate::retention::Retention;
 use crate::rex::Rex;
 use crate::snapshot::{SavedSession, Snapshot};
@@ -25,8 +27,25 @@ pub enum Saved {
     EmptyServer,
 }
 
+/// Restores first if rex-resurrect hasn't restored into this server instance
+/// yet, so that a save on a freshly started server can't replace the latest
+/// snapshot with a near-empty one. Still saves if some sessions failed to
+/// restore, but then exits non-zero.
+///
+/// Holds the restore lock throughout: a save that finds a restore running
+/// waits for it rather than saving a half-restored server.
 pub fn run(options: &SaveOptions) -> Result<ExitCode> {
-    match save(&Rex::from_env(), &StateDir::from_env()?, options)? {
+    // Configuration first: a bad setting fails before anything is restored.
+    let retention = Retention::from_env()?;
+    let rex = Rex::from_env();
+    let state = StateDir::from_env()?;
+    let lock = RestoreLock::acquire(&state)?;
+    let restored_first = restore::restore_unrestored_instance(&rex, &state, &lock)?;
+    if let Some(report) = &restored_first {
+        println!("restored first: this server instance hadn't been restored into yet");
+        let _ = report.print(&mut std::io::stdout().lock());
+    }
+    match save(&rex, &state, retention, options)? {
         Saved::Snapshot { path, sessions } => {
             println!("saved {sessions} session(s) to {}", path.display());
         }
@@ -34,11 +53,18 @@ pub fn run(options: &SaveOptions) -> Result<ExitCode> {
             println!("nothing to save: no sessions worth saving; the latest snapshot is unchanged");
         }
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(match restored_first {
+        Some(report) if report.failed() > 0 => ExitCode::FAILURE,
+        _ => ExitCode::SUCCESS,
+    })
 }
 
-pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved> {
-    let retention = Retention::from_env()?;
+pub fn save(
+    rex: &Rex,
+    state: &StateDir,
+    retention: Retention,
+    _options: &SaveOptions,
+) -> Result<Saved> {
     let lineages = LineageMap::load(state)?;
     let local = capture::Local::read(rex)?;
     let mut sessions = Vec::new();

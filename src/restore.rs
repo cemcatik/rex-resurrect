@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 use crate::create;
 use crate::error::{Context, Error, Result};
+use crate::instance::RestoreLock;
 use crate::lineage::{Lineage, LineageMap};
 use crate::rex::Rex;
 use crate::snapshot::{SavedSession, Snapshot};
@@ -21,6 +22,16 @@ pub struct RestoreOptions {
     pub session: Option<String>,
     /// Print what would be created and skipped, and create nothing.
     pub dry_run: bool,
+}
+
+impl RestoreOptions {
+    /// Whether this restore counts as restoring the server instance. A dry
+    /// run creates nothing and a single-session restore leaves the other
+    /// sessions out, so a save after either still restores first. Restoring
+    /// a whole older snapshot counts.
+    fn restores_whole_snapshot(&self) -> bool {
+        !self.dry_run && self.session.is_none()
+    }
 }
 
 /// What happened to one saved session.
@@ -98,7 +109,9 @@ impl RestoreReport {
 }
 
 pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
-    let report = restore(&Rex::from_env(), &StateDir::from_env()?, options)?;
+    let state = StateDir::from_env()?;
+    let lock = RestoreLock::acquire(&state)?;
+    let report = restore(&Rex::from_env(), &state, &lock, options)?;
     let _ = report.print(&mut std::io::stdout().lock());
     Ok(if report.failed() > 0 {
         ExitCode::FAILURE
@@ -107,12 +120,48 @@ pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
     })
 }
 
+/// Restores into the server's current instance, unless rex-resurrect already
+/// has: `None` then. `save` runs this first; auto-restore, once the server is
+/// ready, needs nothing else.
+pub fn restore_unrestored_instance(
+    rex: &Rex,
+    state: &StateDir,
+    lock: &RestoreLock,
+) -> Result<Option<RestoreReport>> {
+    let instance_id = rex.server_status()?.instance_id;
+    if lock.last_restored()?.as_deref() == Some(instance_id.as_str()) {
+        return Ok(None);
+    }
+    restore(rex, state, lock, &RestoreOptions::default()).map(Some)
+}
+
+/// Restores a snapshot and, once that has finished, records the server
+/// instance it restored into, unless `options` restore less than a whole
+/// snapshot. Sessions that failed to create don't stop it from finishing.
+pub fn restore(
+    rex: &Rex,
+    state: &StateDir,
+    lock: &RestoreLock,
+    options: &RestoreOptions,
+) -> Result<RestoreReport> {
+    let instance_id = rex.server_status()?.instance_id;
+    let report = restore_sessions(rex, state, options)?;
+    if options.restores_whole_snapshot() {
+        lock.record_restored(&instance_id)?;
+    }
+    Ok(report)
+}
+
 /// Creates each saved session whose lineage has no live session (ADR-0001)
 /// and records the new session's lineage; a dry run only reports what it
 /// would create. A session that fails to create doesn't stop the others;
 /// errors that stop the whole restore (no server, unreadable state) are
 /// returned.
-pub fn restore(rex: &Rex, state: &StateDir, options: &RestoreOptions) -> Result<RestoreReport> {
+fn restore_sessions(
+    rex: &Rex,
+    state: &StateDir,
+    options: &RestoreOptions,
+) -> Result<RestoreReport> {
     let Some(snapshot) = chosen_snapshot(state, options)? else {
         return Ok(RestoreReport::default());
     };
