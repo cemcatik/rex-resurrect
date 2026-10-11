@@ -154,7 +154,7 @@ fn a_window_whose_blocks_all_float_restores_as_one_shell_in_the_home_directory_i
         "zz-all-floating",
         &[
             window(shell(&a)),
-            window(shell(&floated)),
+            window(shell(&floated)).labeled("floaty"),
             window(shell(&c)),
         ],
     );
@@ -176,18 +176,31 @@ fn a_window_whose_blocks_all_float_restores_as_one_shell_in_the_home_directory_i
         ],
         "the emptied window keeps its place in the window order",
     );
+    let emptied = &labels(&server.view(&restored[0]))[1];
+    assert_eq!(
+        emptied.label, "floaty",
+        "the emptied window keeps its label"
+    );
+    assert_eq!(emptied.block_labels, ["shell"]);
     assert_eq!(floating_layers(&server, &restored[0]), [0, 0, 0]);
 }
 
 /// Saves a session whose middle block the stand-in `rex` reports through
 /// `edit`, restores it, and checks that only that block came back as a plain
-/// shell in the home directory, in its place in the split tree.
+/// shell (default label) in the home directory, in its place in the split
+/// tree.
 fn assert_saved_as_a_plain_shell_in_home(label: &str, edit: impl Fn(&mut Value)) {
     let env = TestEnv::new();
     let server = env.start_server();
     let home = env.mkdir("home");
     let [a, odd, c] = ["a", "odd", "c"].map(|name| env.mkdir(name));
-    let layout = |middle: &Path| hsplit(0.3, shell(&a), vsplit(0.7, shell(middle), shell(&c)));
+    let layout = |middle: &Path| {
+        hsplit(
+            0.3,
+            shell(&a).labeled("left"),
+            vsplit(0.7, shell(middle).labeled("odd"), shell(&c)),
+        )
+    };
     let fixture = server.create_session(label, &[window(layout(&odd))]);
     server.wait_for_pwds(&fixture);
     let stub = stub_rex_reporting(
@@ -212,6 +225,10 @@ fn assert_saved_as_a_plain_shell_in_home(label: &str, edit: impl Fn(&mut Value))
     assert_eq!(
         server.window_shapes(&restored[0]),
         vec![layout(&home).expected_shape()],
+    );
+    assert_eq!(
+        labels(&server.view(&restored[0]))[0].block_labels,
+        ["left", "shell", "shell"],
     );
 }
 
