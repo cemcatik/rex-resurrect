@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 
 use super::env::prepend_path;
 
@@ -64,17 +64,44 @@ impl ResurrectCmd {
         self
     }
 
-    pub fn run(mut self) -> RunOutput {
+    pub fn run(self) -> RunOutput {
+        self.spawn().wait()
+    }
+
+    /// Starts the run without waiting for it, e.g. to run two at once.
+    pub fn spawn(mut self) -> Running {
         prepend_path(&mut self.env, &self.path_prepend);
-        let out = Command::new(bin())
+        let child = Command::new(bin())
             .args(&self.args)
             .env_clear()
             .envs(&self.env)
             .stdin(Stdio::null())
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .expect("running rex-resurrect");
-        RunOutput {
+        Running {
             command: format!("rex-resurrect {:?}", self.args),
+            child,
+        }
+    }
+}
+
+/// A `rex-resurrect` run that may still be going. [`Running::wait`] for it.
+#[must_use]
+pub struct Running {
+    command: String,
+    child: Child,
+}
+
+impl Running {
+    pub fn wait(self) -> RunOutput {
+        let out = self
+            .child
+            .wait_with_output()
+            .expect("waiting for rex-resurrect");
+        RunOutput {
+            command: self.command,
             status: out.status,
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
