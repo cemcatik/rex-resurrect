@@ -9,7 +9,7 @@ needs nothing else at runtime.
 > **Status:** early. `save` and `restore` bring back each session's label, its windows in order,
 > each window's split layout and ratios, window and block labels you set, each block's working
 > directory and, with the zsh recorder loaded, each block's last command typed at its prompt.
-> Autosave and auto-restore are coming.
+> Autosave runs `save` every 15 minutes. Auto-restore is coming.
 
 ## Install
 
@@ -124,9 +124,14 @@ for it to finish.
 rex-resurrect never starts a Rex server. If Rex isn't running, `save` and `restore` fail and
 say so.
 
+Every failure of `save` or `restore`, including each session that fails to restore, is also
+appended to `rex-resurrect.log` in the state directory, one line per failure starting with a
+UTC timestamp. Successful runs write nothing there.
+
 ### Which server
 
 `REX_SERVER` if set (Rex sets it in every block's shell), otherwise the `rex` CLI's default.
+Autosave saves the server `autosave install` names (see [Autosave](#autosave)).
 
 ### Where state lives
 
@@ -140,14 +145,62 @@ It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which l
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
 sessions that are already live. `last-restored-instance` names the server instance restore last
 ran in, and `restore.lock` makes restores take turns. `recorder/` holds one file per block with
-its last command. The recorder finds the state directory the same way, so set
+its last command. `rex-resurrect.log` is the failure log. The recorder finds the state directory the same way, so set
 `REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
 
 Snapshots and recorder files hold commands, and commands can hold secrets, so the state
 directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
 rex-resurrect writes its own files with mode `0600`, and the recorder keeps its files in a
-`0700` directory. Every file is written atomically (a temporary file, then a rename), so a
-crash never leaves a partial snapshot or record behind.
+`0700` directory. Every file except the log is written atomically (a temporary file, then a
+rename), so a crash never leaves a partial snapshot or record behind; the log is appended to.
+
+## Autosave
+
+```sh
+rex-resurrect autosave install                 # save every 15 minutes
+rex-resurrect autosave install --interval 5    # or every 5
+rex-resurrect autosave uninstall
+```
+
+`autosave install` puts a launchd user agent in `~/Library/LaunchAgents`
+(`io.github.cemcatik.rex-resurrect.autosave.plist`) and loads it, so `rex-resurrect save` runs
+every 15 minutes, or every `--interval` minutes, from now on and after every login. Running it
+again replaces the agent, so there's only ever one. macOS may show a one-time "Background Items
+Added" notification.
+
+Autosave is silent: its output is discarded, and a failure (Rex not running, an API error, a
+snapshot that fails validation) only adds a line to `rex-resurrect.log` in the state directory.
+While Rex isn't running, each autosave fails and logs it; it never starts a server. On a freshly
+started server, autosave restores before it saves, like any `save`.
+
+launchd starts the agent with almost no environment: no `REX_SERVER`, a bare `PATH`, nothing
+from your shell config. So `autosave install` writes into the agent what `save` needs, as it
+finds it when you run it, and prints the server and state directory it chose:
+
+- **the server**: `REX_SERVER` if set, so run it from a Rex block to save the server that block
+  is on. Otherwise the Rex app's server,
+  `unix://$HOME/Library/Application Support/rex/server.sock`, even if `XDG_RUNTIME_DIR` would
+  point the `rex` CLI elsewhere. Autosave always names that server explicitly, so it can't end
+  up on another one;
+- **the state directory**, resolved as above, so autosave shares snapshots with your manual
+  runs and the recorder;
+- `REX_RESURRECT_KEEP`, if set;
+- the directory of the `rex` on your `PATH`. Install fails if there's no `rex` on it.
+
+Run `autosave install` again after changing any of these, or after moving `rex-resurrect`.
+
+`autosave uninstall` unloads the agent and removes its plist, then tells you how to remove the
+zsh recorder and the auto-restore line in `init.lua`. Your snapshots stay in the state
+directory.
+
+To check that autosave works, run `launchctl print gui/$(id -u)/io.github.cemcatik.rex-resurrect.autosave`
+(its `last exit code` should be 0 after the first run) and `rex-resurrect list` (a new snapshot
+every interval), and look in `rex-resurrect.log` for failures.
+
+## Auto-restore
+
+Not available yet. A line in Rex's `init.lua` will run `restore` once each time the Rex server
+starts; this section will show that line, and how to remove it.
 
 ## Development
 
@@ -161,5 +214,10 @@ The integration tests run the built binary against throwaway Rex servers, so the
 `/tmp/rxt.*` with its own state directory and a minimal zsh config, and stops it afterwards.
 They never touch your real Rex server, sessions or snapshots. The shared harness is in
 `tests/common/`.
+
+Autosave's tests never touch the real launchd either: `launchctl` is found on `PATH`, so they
+put a stand-in first, and `REX_RESURRECT_LAUNCH_AGENTS_DIR` replaces `~/Library/LaunchAgents`.
+To try autosave on the real launchd without touching your own agent, also set
+`REX_RESURRECT_AUTOSAVE_LABEL` to a scratch label (for both `install` and `uninstall`).
 
 Terms (session, window, block, label, lineage, ...) follow [GLOSSARY.md](GLOSSARY.md).

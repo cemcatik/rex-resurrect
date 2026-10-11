@@ -32,7 +32,9 @@ Commands:
   restore   Recreate the latest snapshot's sessions that aren't live
   list      List the snapshots, newest first, with their session labels
   autosave install
-            Save every 15 minutes in the background (a launchd agent)
+            Run `save` every 15 minutes in the background (a launchd agent)
+  autosave uninstall
+            Stop autosave, and say how to remove the rest of rex-resurrect
   help      Show this help
 
 Restore options:
@@ -40,6 +42,9 @@ Restore options:
                      of the latest
   --session <label>  Restore only the saved sessions with this label
   -n, --dry-run      Print what would be created and skipped; create nothing
+
+Autosave install options:
+  --interval <minutes>  Save this often instead (default: 15)
 
 Options:
   -h, --help     Show this help
