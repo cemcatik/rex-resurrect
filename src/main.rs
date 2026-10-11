@@ -22,6 +22,7 @@ mod rex;
 mod save;
 mod scheduler;
 mod scrollback;
+mod settings;
 mod snapshot;
 mod state;
 mod store;

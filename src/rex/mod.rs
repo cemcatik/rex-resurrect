@@ -24,6 +24,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use crate::settings;
+
 use api::{
     CreateSession, CreatedSession, FormatArgs, ServerStatus, SessionList, SessionSummary,
     SessionView, TerminalFormat, TerminalProcess, TerminalPwd,
@@ -138,7 +140,7 @@ impl Rex {
     pub fn from_env() -> Rex {
         Rex {
             program: "rex".into(),
-            server: std::env::var_os(SERVER_VAR).filter(|s| !s.is_empty()),
+            server: settings::env_non_empty(SERVER_VAR),
             timeout: None,
         }
     }

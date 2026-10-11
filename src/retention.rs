@@ -10,6 +10,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 
 use crate::error::{Error, Result};
+use crate::settings;
 use crate::state;
 
 pub const KEEP_VAR: &str = "REX_RESURRECT_KEEP";
@@ -25,18 +26,15 @@ impl Retention {
     /// `$REX_RESURRECT_KEEP` snapshots, 10 if it's unset or empty. Anything
     /// but a whole number of at least 1 is an error.
     pub fn from_env() -> Result<Retention> {
-        Retention::parse(std::env::var_os(KEEP_VAR).as_deref())
-    }
-
-    fn parse(value: Option<&OsStr>) -> Result<Retention> {
-        let Some(value) = value.filter(|v| !v.is_empty()) else {
+        let Some(value) = settings::env_non_empty(KEEP_VAR) else {
             return Ok(Retention {
                 keep: NonZeroUsize::new(DEFAULT_KEEP).expect("the default is at least 1"),
             });
         };
         let keep = value
             .to_str()
-            .and_then(|v| v.trim().parse::<NonZeroUsize>().ok())
+            .and_then(settings::whole_number_at_least_1)
+            .and_then(|keep| NonZeroUsize::try_from(keep).ok())
             .ok_or_else(|| {
                 Error::new(format!(
                     "{KEEP_VAR} must be a whole number of snapshots to keep, at least 1, not {value:?}"

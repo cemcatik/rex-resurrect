@@ -29,6 +29,7 @@ use crate::process;
 use crate::restore;
 use crate::rex::Rex;
 use crate::rex::server_process::{self, ServerProcess, Starter};
+use crate::settings;
 use crate::state::{STATE_DIR_VAR, StateDir};
 
 #[derive(Debug, Default)]
@@ -228,14 +229,13 @@ fn wait_until_ready(server: &ServerProcess, timeout: Duration) -> Result<Ready> 
 
 /// `REX_RESURRECT_READY_TIMEOUT`, or the default of a minute.
 fn ready_timeout() -> Result<Duration> {
-    let Some(value) = std::env::var_os(READY_TIMEOUT_VAR).filter(|v| !v.is_empty()) else {
+    let Some(value) = settings::env_non_empty(READY_TIMEOUT_VAR) else {
         return Ok(DEFAULT_READY_TIMEOUT);
     };
     value
         .to_str()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|&seconds| seconds > 0)
-        .map(Duration::from_secs)
+        .and_then(settings::whole_number_at_least_1)
+        .map(|seconds| Duration::from_secs(seconds.get()))
         .ok_or_else(|| {
             Error::new(format!(
                 "{READY_TIMEOUT_VAR} must be a whole number of seconds, at least 1, not {value:?}"

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::Result;
 use crate::process;
+use crate::settings;
 
 use super::SERVER_VAR;
 
@@ -111,7 +112,7 @@ impl ServerProcess {
     /// process's environment). Only one that reports this server's pid is
     /// the server.
     pub fn candidate_endpoints(&self, home: &Path) -> Vec<String> {
-        let var = |name| std::env::var_os(name).filter(|v| !v.is_empty());
+        let var = settings::env_non_empty;
         let mut endpoints: Vec<String> = Vec::new();
         endpoints.extend(self.listen.clone());
         endpoints.extend(var(SERVER_VAR).and_then(|v| v.into_string().ok()));

@@ -15,6 +15,7 @@ use crate::retention::{KEEP_VAR, Retention};
 use crate::rex;
 use crate::scheduler::{self, Interval, Job};
 use crate::scrollback::NO_SCROLLBACK_VAR;
+use crate::settings;
 use crate::state::{STATE_DIR_VAR, StateDir};
 
 #[derive(Debug)]
@@ -86,7 +87,7 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
 ///   out the scrollback of the same programs as manual saves;
 /// - `PATH`: `rex`'s directory first, then the system's.
 fn job_env(state: &StateDir) -> Result<BTreeMap<String, String>> {
-    let server = match std::env::var_os(rex::SERVER_VAR).filter(|s| !s.is_empty()) {
+    let server = match settings::env_non_empty(rex::SERVER_VAR) {
         Some(server) => utf8(&server)?,
         None => rex::app_server_endpoint(&account::home()?),
     };
@@ -94,7 +95,7 @@ fn job_env(state: &StateDir) -> Result<BTreeMap<String, String>> {
     env.insert(rex::SERVER_VAR.to_string(), server);
     env.insert(STATE_DIR_VAR.to_string(), utf8(state.path().as_os_str())?);
     Retention::from_env()?;
-    if let Some(keep) = std::env::var_os(KEEP_VAR).filter(|v| !v.is_empty()) {
+    if let Some(keep) = settings::env_non_empty(KEEP_VAR) {
         env.insert(KEEP_VAR.to_string(), utf8(&keep)?);
     }
     if let Some(programs) = std::env::var_os(NO_SCROLLBACK_VAR) {

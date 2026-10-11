@@ -16,6 +16,7 @@ use std::process::{Command, Stdio};
 use super::{Job, Scheduler};
 use crate::account;
 use crate::error::{Context, Error, Result};
+use crate::settings;
 use crate::state;
 
 /// The autosave agent's label: its name in launchd and its plist's file name.
@@ -34,13 +35,15 @@ pub struct Launchd {
 
 impl Launchd {
     pub fn from_env() -> Result<Launchd> {
-        let agents_dir = match std::env::var_os(AGENTS_DIR_VAR).filter(|v| !v.is_empty()) {
+        let agents_dir = match settings::env_non_empty(AGENTS_DIR_VAR) {
             Some(dir) => PathBuf::from(dir),
             None => account::home()?.join("Library/LaunchAgents"),
         };
-        let label = match std::env::var(LABEL_VAR) {
-            Ok(label) if !label.is_empty() => label,
-            _ => LABEL.to_string(),
+        let label = match settings::env_non_empty(LABEL_VAR) {
+            Some(label) => label
+                .into_string()
+                .map_err(|label| Error::new(format!("{LABEL_VAR} isn't valid UTF-8: {label:?}")))?,
+            None => LABEL.to_string(),
         };
         if label.contains('/') {
             return Err(Error::new(format!(

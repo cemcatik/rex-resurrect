@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use crate::error::{Context, Error, Result};
+use crate::settings;
 
 pub const STATE_DIR_VAR: &str = "REX_RESURRECT_STATE_DIR";
 
@@ -27,7 +28,7 @@ pub struct StateDir {
 
 impl StateDir {
     pub fn from_env() -> Result<StateDir> {
-        let var = |name| std::env::var_os(name).filter(|v: &OsString| !v.is_empty());
+        let var = settings::env_non_empty;
         resolve(var(STATE_DIR_VAR), var("XDG_STATE_HOME"), var("HOME"))
             .map(|root| StateDir { root })
             .ok_or_else(|| {
