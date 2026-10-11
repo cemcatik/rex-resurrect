@@ -156,3 +156,42 @@ fn two_restores_started_at_once_create_no_duplicates() {
     counts.sort();
     assert_eq!(counts, [(0, 3), (3, 0)], "{}\n{}", outs[0], outs[1]);
 }
+
+#[test]
+fn a_save_that_starts_during_a_restore_waits_for_it_instead_of_saving_a_partial_server() {
+    let env = TestEnv::new();
+    let labels = ["zz-one", "zz-three", "zz-two"];
+    saved_on_an_earlier_server(&env, &labels);
+    let server = env.start_server();
+    // An instance already restored into, so the save has no reason to
+    // restore anything itself.
+    env.restore(&server);
+    for session in server.sessions() {
+        server.kill_session(&session.id);
+    }
+
+    let slow = slow_rex(&env, "session.create", 0.5);
+    let restore = env
+        .resurrect(&server)
+        .arg("restore")
+        .path_prepend(&slow)
+        .spawn();
+    common::server::wait_for("the restore's first session", || {
+        (!server.sessions().is_empty()).then_some(())
+    });
+    env.save(&server);
+
+    assert_eq!(
+        sorted_labels(&server),
+        labels,
+        "save returned before the restore finished"
+    );
+    let restored = restore.wait().assert_success();
+    assert_eq!(restored.lines_starting("created").len(), 3, "{restored}");
+
+    // The snapshot that save wrote holds every session the restore created.
+    drop(server);
+    let third = env.start_server();
+    env.restore(&third);
+    assert_eq!(sorted_labels(&third), labels);
+}
