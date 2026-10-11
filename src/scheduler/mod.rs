@@ -11,6 +11,7 @@ use std::fmt;
 use std::num::NonZeroU32;
 
 use crate::error::Result;
+use crate::settings;
 
 /// What a scheduler runs: a program with its arguments, every [`Interval`].
 #[derive(Debug)]
@@ -55,9 +56,8 @@ impl Interval {
 
     /// Parses a whole number of minutes, at least 1 (`"15"`).
     pub fn parse_minutes(minutes: &str) -> Option<Interval> {
-        minutes
-            .parse::<NonZeroU32>()
-            .ok()
+        settings::whole_number_at_least_1(minutes)
+            .and_then(|minutes| NonZeroU32::try_from(minutes).ok())
             .map(|minutes| Interval { minutes })
     }
 

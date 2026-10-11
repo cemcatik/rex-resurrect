@@ -8,13 +8,15 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use crate::account;
 use crate::error::{Context, Error, Result};
 use crate::log::Log;
 use crate::retention::{KEEP_VAR, Retention};
 use crate::rex;
 use crate::scheduler::{self, Interval, Job};
+use crate::scrollback::NO_SCROLLBACK_VAR;
+use crate::settings;
 use crate::state::{STATE_DIR_VAR, StateDir};
-use crate::workdir;
 
 #[derive(Debug)]
 pub enum AutosaveCommand {
@@ -68,7 +70,7 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// The scheduled save's environment. A scheduler starts its jobs with
+/// The autosave job's environment. A scheduler starts its jobs with
 /// almost none (launchd: no `REX_SERVER`, a bare `PATH`, nothing from the
 /// user's shell), so the job gets what `save` depends on, as install finds
 /// it:
@@ -81,18 +83,23 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
 /// - `REX_RESURRECT_KEEP`, if set, so autosave doesn't prune the snapshots
 ///   the user wants kept (checked here, so a bad value fails now rather
 ///   than every autosave);
+/// - `REX_RESURRECT_NO_SCROLLBACK`, if set (even empty), so autosave leaves
+///   out the scrollback of the same programs as manual saves;
 /// - `PATH`: `rex`'s directory first, then the system's.
 fn job_env(state: &StateDir) -> Result<BTreeMap<String, String>> {
-    let server = match std::env::var_os(rex::SERVER_VAR).filter(|s| !s.is_empty()) {
+    let server = match settings::env_non_empty(rex::SERVER_VAR) {
         Some(server) => utf8(&server)?,
-        None => rex::app_server_endpoint(&workdir::home()?),
+        None => rex::app_server_endpoint(&account::home()?),
     };
     let mut env = BTreeMap::new();
     env.insert(rex::SERVER_VAR.to_string(), server);
     env.insert(STATE_DIR_VAR.to_string(), utf8(state.path().as_os_str())?);
     Retention::from_env()?;
-    if let Some(keep) = std::env::var_os(KEEP_VAR).filter(|v| !v.is_empty()) {
+    if let Some(keep) = settings::env_non_empty(KEEP_VAR) {
         env.insert(KEEP_VAR.to_string(), utf8(&keep)?);
+    }
+    if let Some(programs) = std::env::var_os(NO_SCROLLBACK_VAR) {
+        env.insert(NO_SCROLLBACK_VAR.to_string(), utf8(&programs)?);
     }
     env.insert("PATH".to_string(), job_path()?);
     Ok(env)

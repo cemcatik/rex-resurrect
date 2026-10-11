@@ -2,23 +2,28 @@
 
 use std::path::PathBuf;
 
+use crate::account;
 use crate::error::{Error, Result};
 use crate::foreground;
 use crate::label;
 use crate::lineage::Lineage;
-use crate::recorder::RecorderFiles;
-use crate::rex::Rex;
+use crate::recorder::{Recorded, RecorderFiles};
+use crate::restore::CreatedBlocks;
 use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, WindowView};
-use crate::scrollback::{ScrollbackStore, SnapshotScrollback};
+use crate::rex::{BlockRef, Rex};
+use crate::scrollback::{
+    NoScrollbackPrograms, ScrollbackSource, ScrollbackStore, SnapshotScrollback,
+};
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedSplit, SavedWindow};
 use crate::state::StateDir;
 use crate::timestamp::Timestamp;
 use crate::workdir;
 
-/// What save compares blocks against and reads about them on this machine:
-/// the local server, the home directory and the recorder files; and where
-/// it saves their scrollback.
-pub struct Local {
+/// What a save captures blocks with: what it compares them against (the
+/// local server's host, the home directory), where it reads about them on
+/// this machine (the recorder files, the blocks this run just restored), the
+/// programs whose blocks get no scrollback, and where it saves scrollback.
+pub struct CaptureContext {
     /// The local server's host. A block with a different `host_id` is a
     /// remote block.
     pub host_id: String,
@@ -26,18 +31,31 @@ pub struct Local {
     pub home: PathBuf,
     /// Each local shell block's last command.
     pub recorder: RecorderFiles,
+    /// The blocks the restore this save ran first created.
+    pub restored: CreatedBlocks,
     /// Where the snapshot this save writes keeps its blocks' scrollback.
     pub scrollback: SnapshotScrollback,
+    /// The programs whose blocks get no scrollback.
+    pub no_scrollback: NoScrollbackPrograms,
 }
 
-impl Local {
-    /// `taken_at`: the time of the snapshot this save writes.
-    pub fn read(rex: &Rex, state: &StateDir, taken_at: Timestamp) -> Result<Local> {
-        Ok(Local {
+impl CaptureContext {
+    /// `taken_at`: the time of the snapshot this save writes. `restored`:
+    /// the blocks the restore this save ran first created, if any.
+    pub fn read(
+        rex: &Rex,
+        state: &StateDir,
+        taken_at: Timestamp,
+        restored: CreatedBlocks,
+        no_scrollback: NoScrollbackPrograms,
+    ) -> Result<CaptureContext> {
+        Ok(CaptureContext {
             host_id: rex.server_status()?.host_id,
-            home: workdir::home()?,
+            home: account::home()?,
             recorder: RecorderFiles::new(state),
+            restored,
             scrollback: ScrollbackStore::new(state).for_snapshot(taken_at),
+            no_scrollback,
         })
     }
 
@@ -65,98 +83,173 @@ impl Local {
     }
 }
 
+/// A live session as save captured it: the saved session, still without its
+/// blocks' scrollback, and where that scrollback is to come from. Save only
+/// saves the scrollback of a session it keeps
+/// ([`CapturedSession::with_scrollback`]), so a session it leaves out (an
+/// untouched one, say) leaves nothing behind.
+pub struct CapturedSession {
+    pub saved: SavedSession,
+    /// One entry per block of `saved`, window by window in layout order: the
+    /// block whose scrollback to save, or `None` for a block that gets none.
+    scrollback: Vec<Option<ScrollbackSource>>,
+}
+
+impl CapturedSession {
+    /// The saved session, with its blocks' scrollback saved for the snapshot
+    /// `store` belongs to.
+    pub fn with_scrollback(
+        mut self,
+        rex: &Rex,
+        store: &SnapshotScrollback,
+    ) -> Result<SavedSession> {
+        let blocks = self
+            .saved
+            .windows
+            .iter_mut()
+            .flat_map(|window| window.layout.blocks_mut());
+        for (block, source) in blocks.zip(self.scrollback) {
+            if let Some(source) = source {
+                block.scrollback = store.save(rex, &source)?;
+            }
+        }
+        Ok(self.saved)
+    }
+}
+
 pub fn saved_session(
     rex: &Rex,
-    local: &Local,
+    context: &CaptureContext,
     view: &SessionView,
     lineage: Lineage,
-) -> Result<SavedSession> {
+) -> Result<CapturedSession> {
+    let mut capture = Capture {
+        rex,
+        context,
+        session: view,
+        scrollback: Vec::new(),
+    };
     let windows = view
         .windows
         .iter()
-        .map(|window| saved_window(rex, local, view, window))
+        .map(|window| capture.saved_window(window))
         .collect::<Result<_>>()?;
-    Ok(SavedSession {
-        lineage,
-        label: view.label.clone(),
-        windows,
+    Ok(CapturedSession {
+        saved: SavedSession {
+            lineage,
+            label: view.label.clone(),
+            windows,
+        },
+        scrollback: capture.scrollback,
     })
 }
 
-/// A window's tiled layout. Floating layers aren't saved. A window whose
-/// blocks have all floated away has nothing tiled; it comes back holding one
-/// plain shell, so it keeps its place among the session's windows.
-fn saved_window(
-    rex: &Rex,
-    local: &Local,
-    session: &SessionView,
-    window: &WindowView,
-) -> Result<SavedWindow> {
-    let tiled = window.tiled_layer().ok_or_else(|| {
-        Error::new(format!(
-            "session.view: window {} has no tiled layer",
-            window.window_id
-        ))
-    })?;
-    let layout = match &tiled.layout {
-        Some(layout) => saved_layout(rex, local, session, tiled, layout)?,
-        None => SavedLayout::Block(local.plain_shell()),
-    };
-    Ok(SavedWindow {
-        label: label::user_set_window_label(window).map(str::to_owned),
-        layout,
-    })
+/// One session's capture, under way.
+struct Capture<'a> {
+    rex: &'a Rex,
+    context: &'a CaptureContext,
+    session: &'a SessionView,
+    /// [`CapturedSession::scrollback`] so far.
+    scrollback: Vec<Option<ScrollbackSource>>,
 }
 
-fn saved_layout(
-    rex: &Rex,
-    local: &Local,
-    session: &SessionView,
-    layer: &LayerView,
-    node: &LayoutView,
-) -> Result<SavedLayout> {
-    match node {
-        LayoutView::Block { block_id } => {
-            let block = layer.block(block_id).ok_or_else(|| {
-                Error::new(format!(
-                    "session.view: block {block_id} is in a layout but not in its layer's blocks"
-                ))
-            })?;
-            Ok(SavedLayout::Block(saved_block(rex, local, session, block)?))
+impl Capture<'_> {
+    /// A window's tiled layout. Floating layers aren't saved. A window whose
+    /// blocks have all floated away has nothing tiled; it comes back holding
+    /// one plain shell, so it keeps its place among the session's windows.
+    fn saved_window(&mut self, window: &WindowView) -> Result<SavedWindow> {
+        let tiled = window.tiled_layer().ok_or_else(|| {
+            Error::new(format!(
+                "session.view: window {} has no tiled layer",
+                window.window_id
+            ))
+        })?;
+        let layout = match &tiled.layout {
+            Some(layout) => self.saved_layout(tiled, layout)?,
+            None => SavedLayout::Block(self.plain_shell()),
+        };
+        Ok(SavedWindow {
+            label: label::user_set_window_label(window).map(str::to_owned),
+            layout,
+        })
+    }
+
+    fn saved_layout(&mut self, layer: &LayerView, node: &LayoutView) -> Result<SavedLayout> {
+        match node {
+            LayoutView::Block { block_id } => {
+                let block = layer.block(block_id).ok_or_else(|| {
+                    Error::new(format!(
+                        "session.view: block {block_id} is in a layout but not in its layer's blocks"
+                    ))
+                })?;
+                Ok(SavedLayout::Block(self.saved_block(block)?))
+            }
+            LayoutView::Split(split) => Ok(SavedLayout::Split(SavedSplit {
+                direction: split.direction,
+                ratio: split.ratio,
+                before: Box::new(self.saved_layout(layer, &split.before)?),
+                after: Box::new(self.saved_layout(layer, &split.after)?),
+            })),
         }
-        LayoutView::Split(split) => Ok(SavedLayout::Split(SavedSplit {
-            direction: split.direction,
-            ratio: split.ratio,
-            before: Box::new(saved_layout(rex, local, session, layer, &split.before)?),
-            after: Box::new(saved_layout(rex, local, session, layer, &split.after)?),
-        })),
     }
-}
 
-/// A local shell block in its working directory, with its recorder file as
-/// the source of truth for its last command. A block without one (its shell
-/// started before the recorder was installed) falls back to the program in
-/// its foreground. Its scrollback is saved too. A non-terminal block has no
-/// working directory, and a remote block's is on another host, so either is
-/// saved as a plain shell in the home directory.
-fn saved_block(
-    rex: &Rex,
-    local: &Local,
-    session: &SessionView,
-    block: &BlockView,
-) -> Result<SavedBlock> {
-    if !local.is_local_shell(block) {
-        return Ok(local.plain_shell());
+    /// A local shell block in its working directory, with its recorder file
+    /// as the source of truth for its last command, including a record that
+    /// it has none. A block without one (its shell started before the
+    /// recorder was installed) falls back to the program in its foreground.
+    /// Its scrollback is saved later, if save keeps the session. A block
+    /// this run just restored is saved as restore created it. A block that
+    /// isn't a shell block has no working directory, and a remote block's is
+    /// on another host, so either is saved as a plain shell in the home
+    /// directory.
+    fn saved_block(&mut self, block: &BlockView) -> Result<SavedBlock> {
+        if !self.context.is_local_shell(block) {
+            return Ok(self.plain_shell());
+        }
+        let label = label::user_set_block_label(block).map(str::to_owned);
+        let (rex, session_id, block_id) = (self.rex, &self.session.session_id, &block.block_id);
+        if let Some(created) = self.context.restored.get(block_id) {
+            // Its shell may still be starting: it hasn't reported a working
+            // directory, and the startup may be running in its foreground.
+            // Nothing can have run in it yet.
+            self.scrollback.push(created.scrollback.clone().map(|file| {
+                ScrollbackSource::Restored {
+                    block_id: block_id.clone(),
+                    file,
+                }
+            }));
+            return Ok(SavedBlock {
+                label,
+                working_directory: created.working_directory.clone(),
+                last_command: created.last_command.clone(),
+                scrollback: None,
+            });
+        }
+        let process = rex.terminal_process(session_id, block_id)?;
+        let last_command = match self.context.recorder.read(block_id)? {
+            Recorded::LastCommand(command) => Some(command),
+            Recorded::NoLastCommand => None,
+            Recorded::Nothing => foreground::foreground_command(&process)?,
+        };
+        let saved = SavedBlock {
+            label,
+            working_directory: workdir::working_directory(rex, session_id, block_id, &process)?,
+            last_command,
+            scrollback: None,
+        };
+        let has_scrollback = !self.context.no_scrollback.running_in(&process);
+        self.scrollback.push(has_scrollback.then(|| {
+            ScrollbackSource::Terminal(BlockRef {
+                session_id: session_id.clone(),
+                block_id: block_id.clone(),
+            })
+        }));
+        Ok(saved)
     }
-    let (session_id, block_id) = (&session.session_id, &block.block_id);
-    let last_command = match local.recorder.last_command(block_id)? {
-        Some(recorded) => Some(recorded),
-        None => foreground::foreground_command(rex, session_id, block_id)?,
-    };
-    Ok(SavedBlock {
-        label: label::user_set_block_label(block).map(str::to_owned),
-        working_directory: workdir::working_directory(rex, session_id, block_id)?,
-        last_command,
-        scrollback: local.scrollback.save(rex, session_id, block_id)?,
-    })
+
+    /// [`CaptureContext::plain_shell`]: no scrollback.
+    fn plain_shell(&mut self) -> SavedBlock {
+        self.scrollback.push(None);
+        self.context.plain_shell()
+    }
 }

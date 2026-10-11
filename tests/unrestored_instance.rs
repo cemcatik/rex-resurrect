@@ -11,23 +11,6 @@ mod common;
 use common::stub::slow_rex;
 use common::*;
 
-fn sorted_labels(server: &Server) -> Vec<String> {
-    let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
-    labels.sort();
-    labels
-}
-
-/// Saves one session per label, each a shell in its own directory, on a
-/// server that then stops. The next server started from `env` is a restart.
-fn saved_on_an_earlier_server(env: &TestEnv, labels: &[&str]) {
-    let server = env.start_server();
-    for label in labels {
-        let fixture = server.create_session(label, &[window(shell(env.mkdir(label)))]);
-        server.wait_for_pwds(&fixture);
-    }
-    env.save(&server);
-}
-
 #[test]
 fn save_on_a_fresh_server_instance_restores_the_latest_snapshot_first() {
     let env = TestEnv::new();
@@ -46,7 +29,7 @@ fn save_on_a_fresh_server_instance_restores_the_latest_snapshot_first() {
     after.wait_for_pwds(&early);
     env.save(&after);
 
-    assert_eq!(sorted_labels(&after), ["zz-early", "zz-proj"]);
+    assert_eq!(after.sorted_labels(), ["zz-early", "zz-proj"]);
     let restored = after.session_ids_labelled("zz-proj");
     assert_eq!(
         after.window_shapes(&restored[0]),
@@ -58,7 +41,48 @@ fn save_on_a_fresh_server_instance_restores_the_latest_snapshot_first() {
     drop(after);
     let third = env.start_server();
     env.restore(&third);
-    assert_eq!(sorted_labels(&third), ["zz-early", "zz-proj"]);
+    assert_eq!(third.sorted_labels(), ["zz-early", "zz-proj"]);
+}
+
+/// A save that restores first reads the server straight after creating the
+/// restored blocks, while their shells are still starting (a slow zsh
+/// config, here a `sleep` in `.zshrc`): no working directory reported yet,
+/// and whatever the startup runs in the foreground. Nothing can have run in
+/// them yet, so it saves them as restore created them.
+#[test]
+fn a_save_that_restores_first_saves_the_blocks_it_restored_as_restore_created_them() {
+    let env = TestEnv::builder().zshrc_line("sleep 3").build();
+    let [proj, other] = ["proj", "other"].map(|name| env.mkdir(name));
+    let layout = || hsplit(0.7, shell(&proj), shell(&other));
+    {
+        let before = env.start_server();
+        let fixture = before.create_session("zz-proj", &[window(layout())]);
+        before.wait_for_pwds(&fixture);
+        let [typed, idle] = [0, 1].map(|i| fixture.block_ids()[i]);
+        before.run(&fixture.id, idle, "echo zz-earlier");
+        before.wait_for_capture(&fixture.id, idle, "the echo", |c| {
+            c.contains("\nzz-earlier")
+        });
+        env.write_recorder_file(typed, "make test");
+        env.save(&before);
+    } // The server stops, as in a restart.
+    {
+        let after = env.start_server();
+        env.save(&after);
+    }
+
+    let third = env.start_server();
+    env.restore(&third);
+    let restored = third.the_session_labelled("zz-proj");
+    let blocks = third.block_ids(&restored);
+    third.wait_for_typed(&restored, &blocks[0], "make test");
+    third.assert_empty_prompt(&restored, &blocks[1]);
+    let capture = third.capture(&restored, &blocks[1]);
+    assert!(
+        capture.contains("\nzz-earlier"),
+        "the scrollback restore printed is saved again:\n{capture}"
+    );
+    assert_eq!(third.window_shapes(&restored), [layout().expected_shape()]);
 }
 
 #[test]
@@ -80,12 +104,30 @@ fn with_no_snapshot_yet_save_saves_and_counts_the_instance_as_restored() {
     );
 }
 
+/// Another server can restore too: one started by hand without its own
+/// `--config` runs the user's init.lua, auto-restore included. That mustn't
+/// make a server already restored into look unrestored, or its next save
+/// would bring back sessions killed since.
+#[test]
+fn a_restore_into_another_server_leaves_this_one_counted_as_restored() {
+    let env = TestEnv::new();
+    env.saved_on_an_earlier_server(&["zz-proj"]);
+    let server = env.start_server();
+    env.restore(&server);
+    server.kill_session(&server.the_session_labelled("zz-proj"));
+    let other = env.start_server();
+    env.restore(&other);
+
+    env.save(&server);
+    assert_eq!(server.sessions(), [], "zz-proj came back");
+}
+
 /// Restores the latest snapshot into a fresh server instance with `command`
 /// (`restore`, or a `save` that restores first), then kills every session
 /// restored and saves again.
 fn kill_restored_sessions_and_save_again(command: &str) -> Server {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-proj"]);
+    env.saved_on_an_earlier_server(&["zz-proj"]);
     let after = env.start_server();
     env.resurrect(&after).arg(command).run().assert_success();
     let restored = after.session_ids_labelled("zz-proj");
@@ -112,7 +154,7 @@ fn after_a_save_that_restored_first_save_does_not_restore_again() {
 /// `restore <args>` followed by `save`.
 fn restore_with_then_save(args: &[&str]) -> Server {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-one", "zz-two"]);
+    env.saved_on_an_earlier_server(&["zz-one", "zz-two"]);
     let server = env.start_server();
     env.resurrect(&server)
         .arg("restore")
@@ -126,13 +168,13 @@ fn restore_with_then_save(args: &[&str]) -> Server {
 #[test]
 fn a_dry_run_restore_does_not_count_as_restoring_the_instance() {
     let server = restore_with_then_save(&["--dry-run"]);
-    assert_eq!(sorted_labels(&server), ["zz-one", "zz-two"]);
+    assert_eq!(server.sorted_labels(), ["zz-one", "zz-two"]);
 }
 
 #[test]
 fn a_single_session_restore_does_not_count_as_restoring_the_instance() {
     let server = restore_with_then_save(&["--session", "zz-one"]);
-    assert_eq!(sorted_labels(&server), ["zz-one", "zz-two"]);
+    assert_eq!(server.sorted_labels(), ["zz-one", "zz-two"]);
 }
 
 #[test]
@@ -157,14 +199,71 @@ fn restoring_a_whole_older_snapshot_counts_as_restoring_the_instance() {
         .run()
         .assert_success();
     env.save(&server);
-    assert_eq!(sorted_labels(&server), ["zz-old"]);
+    assert_eq!(server.sorted_labels(), ["zz-old"]);
+}
+
+/// Saves zz-wide, a session with two windows, on a server that then stops,
+/// and starts one that refuses a second window in any session: no restore
+/// can recreate zz-wide there. A session of its own, zz-early, gives a save
+/// there something to save.
+fn a_server_that_cant_restore_anything(env: &TestEnv) -> Server {
+    let a = env.mkdir("a");
+    {
+        let before = env.start_server();
+        let wide = before.create_session("zz-wide", &[window(shell(&a)), window(shell(&a))]);
+        before.wait_for_pwds(&wide);
+        env.save(&before);
+    }
+    let server = env.server().arg("--max-windows").arg("1").start();
+    let early = server.create_session("zz-early", &[window(shell(&a))]);
+    server.wait_for_pwds(&early);
+    server
+}
+
+/// A restore in which every session failed restored nothing: a save after it
+/// must still restore first rather than replace the latest snapshot.
+#[test]
+fn a_save_whose_restore_first_fails_for_every_session_saves_nothing_and_exits_non_zero() {
+    let env = TestEnv::new();
+    let server = a_server_that_cant_restore_anything(&env);
+    let snapshots = env.listed(&server);
+
+    for _ in 0..2 {
+        let out = env.resurrect(&server).arg("save").run().assert_failure();
+        assert!(out.stdout.contains("restored first"), "{out}");
+        assert_eq!(env.listed(&server), snapshots, "no new snapshot: {out}");
+    }
+    let entries = env.log_entries();
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.contains("save failed") && e.contains("nothing was saved")),
+        "{entries:#?}"
+    );
+
+    drop(server);
+    let third = env.start_server();
+    env.restore(&third);
+    assert_eq!(third.sorted_labels(), ["zz-wide"]);
+}
+
+#[test]
+fn a_restore_in_which_every_session_failed_does_not_count_as_restoring_the_instance() {
+    let env = TestEnv::new();
+    let server = a_server_that_cant_restore_anything(&env);
+    let snapshots = env.listed(&server);
+    env.resurrect(&server).arg("restore").run().assert_failure();
+
+    let out = env.resurrect(&server).arg("save").run().assert_failure();
+    assert!(out.stdout.contains("restored first"), "{out}");
+    assert_eq!(env.listed(&server), snapshots, "no new snapshot: {out}");
 }
 
 #[test]
 fn two_restores_started_at_once_create_no_duplicates() {
     let env = TestEnv::new();
     let labels = ["zz-one", "zz-three", "zz-two"];
-    saved_on_an_earlier_server(&env, &labels);
+    env.saved_on_an_earlier_server(&labels);
     let server = env.start_server();
     // Every session.create waits a moment, so both restores have listed the
     // live sessions long before either creates one.
@@ -178,7 +277,7 @@ fn two_restores_started_at_once_create_no_duplicates() {
     let (first, second) = (restore(), restore());
     let outs = [first.wait(), second.wait()].map(RunOutput::assert_success);
 
-    assert_eq!(sorted_labels(&server), labels);
+    assert_eq!(server.sorted_labels(), labels);
     // One restore created every session; the other waited for it, then
     // found every saved session's lineage live.
     let counts = |out: &RunOutput| {
@@ -196,7 +295,7 @@ fn two_restores_started_at_once_create_no_duplicates() {
 fn a_save_that_starts_during_a_restore_waits_for_it_instead_of_saving_a_partial_server() {
     let env = TestEnv::new();
     let labels = ["zz-one", "zz-three", "zz-two"];
-    saved_on_an_earlier_server(&env, &labels);
+    env.saved_on_an_earlier_server(&labels);
     let server = env.start_server();
     // An instance already restored into, so the save has no reason to
     // restore anything itself.
@@ -217,7 +316,7 @@ fn a_save_that_starts_during_a_restore_waits_for_it_instead_of_saving_a_partial_
     env.save(&server);
 
     assert_eq!(
-        sorted_labels(&server),
+        server.sorted_labels(),
         labels,
         "save returned before the restore finished"
     );
@@ -228,5 +327,5 @@ fn a_save_that_starts_during_a_restore_waits_for_it_instead_of_saving_a_partial_
     drop(server);
     let third = env.start_server();
     env.restore(&third);
-    assert_eq!(sorted_labels(&third), labels);
+    assert_eq!(third.sorted_labels(), labels);
 }

@@ -16,29 +16,14 @@ use std::process::Command;
 use common::server::wait_for;
 use common::*;
 
-/// The init.lua line that turns auto-restore on, as the README gives it.
-fn hook() -> String {
-    format!(
-        "os.execute([['{}' auto-restore]])\n",
-        common::resurrect::bin()
-    )
-}
-
-fn sorted_labels(server: &Server) -> Vec<String> {
-    let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
-    labels.sort();
-    labels
-}
-
-/// Saves one session per label, each a shell in its own directory, on a
-/// server that then stops.
-fn saved_on_an_earlier_server(env: &TestEnv, labels: &[&str]) {
-    let server = env.start_server();
-    for label in labels {
-        let fixture = server.create_session(label, &[window(shell(env.mkdir(label)))]);
-        server.wait_for_pwds(&fixture);
-    }
-    env.save(&server);
+/// The init.lua line that turns auto-restore on, as the README has users
+/// add it: what `rex-resurrect auto-restore --print-hook` prints.
+fn hook(env: &TestEnv) -> String {
+    env.resurrect_at("unix:///tmp/rxt-none/s.sock")
+        .args(["auto-restore", "--print-hook"])
+        .run()
+        .assert_success()
+        .stdout
 }
 
 /// The log's auto-restore entries, once there are at least `n` (each
@@ -67,7 +52,7 @@ fn a_server_whose_init_lua_has_the_hook_restores_the_latest_snapshot_when_it_sta
         env.save(&before);
     } // The server stops, as in a restart.
 
-    let after = env.server().init_lua(hook()).start();
+    let after = env.server().init_lua(hook(&env)).start();
     let entries = wait_for_auto_restores(&env, 1);
 
     let restored = after.the_session_labelled("zz-proj");
@@ -80,18 +65,18 @@ fn a_server_whose_init_lua_has_the_hook_restores_the_latest_snapshot_when_it_sta
 #[test]
 fn the_hook_restores_into_the_server_running_it_even_when_rex_server_names_another() {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-proj"]);
+    env.saved_on_an_earlier_server(&["zz-proj"]);
     // A server started from inside another server's block inherits that
     // block's REX_SERVER, and so does its init.lua.
     let other = env.start_server();
     let server = env
         .server()
-        .init_lua(hook())
+        .init_lua(hook(&env))
         .env("REX_SERVER", other.endpoint())
         .start();
     let entries = wait_for_auto_restores(&env, 1);
 
-    assert_eq!(sorted_labels(&server), ["zz-proj"]);
+    assert_eq!(server.sorted_labels(), ["zz-proj"]);
     assert_eq!(other.sessions(), [], "restored into the other server");
     assert!(entries[0].contains(server.endpoint()), "{}", entries[0]);
 }
@@ -99,8 +84,8 @@ fn the_hook_restores_into_the_server_running_it_even_when_rex_server_names_anoth
 #[test]
 fn a_config_reload_does_not_restore_again_even_after_a_restored_session_was_killed() {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-proj"]);
-    let server = env.server().init_lua(hook()).start();
+    env.saved_on_an_earlier_server(&["zz-proj"]);
+    let server = env.server().init_lua(hook(&env)).start();
     wait_for_auto_restores(&env, 1);
     server.kill_session(&server.the_session_labelled("zz-proj"));
 
@@ -112,17 +97,43 @@ fn a_config_reload_does_not_restore_again_even_after_a_restored_session_was_kill
 }
 
 #[test]
+fn an_auto_restore_in_which_every_session_failed_does_not_count_as_restoring_the_instance() {
+    let env = TestEnv::new();
+    let a = env.mkdir("a");
+    {
+        let before = env.start_server();
+        let wide = before.create_session("zz-wide", &[window(shell(&a)), window(shell(&a))]);
+        before.wait_for_pwds(&wide);
+        env.save(&before);
+    }
+    // A server that refuses a second window in any session can't recreate
+    // zz-wide.
+    let server = env
+        .server()
+        .arg("--max-windows")
+        .arg("1")
+        .init_lua(hook(&env))
+        .start();
+    // The failed session's entry, then the outcome.
+    let entries = wait_for_auto_restores(&env, 2);
+    assert!(entries[1].contains("1 failed"), "{entries:#?}");
+
+    let out = env.resurrect(&server).arg("save").run().assert_failure();
+    assert!(out.stdout.contains("restored first"), "{out}");
+}
+
+#[test]
 fn a_repeated_trigger_creates_no_duplicates() {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-one", "zz-two"]);
+    env.saved_on_an_earlier_server(&["zz-one", "zz-two"]);
     // Both background runs wait for the server and then restore at once.
     let server = env
         .server()
-        .init_lua(format!("{}{}", hook(), hook()))
+        .init_lua(format!("{}{}", hook(&env), hook(&env)))
         .start();
     let entries = wait_for_auto_restores(&env, 2);
 
-    assert_eq!(sorted_labels(&server), ["zz-one", "zz-two"]);
+    assert_eq!(server.sorted_labels(), ["zz-one", "zz-two"]);
     // One run restored; the other waited for it, then found this server
     // instance restored into.
     let mut outcomes: Vec<&str> = entries
@@ -141,7 +152,7 @@ fn a_repeated_trigger_creates_no_duplicates() {
 fn a_trigger_while_a_restore_is_running_creates_no_duplicates() {
     let env = TestEnv::new();
     let labels = ["zz-one", "zz-three", "zz-two"];
-    saved_on_an_earlier_server(&env, &labels);
+    env.saved_on_an_earlier_server(&labels);
     let server = env.start_server();
     let slow = common::stub::slow_rex(&env, "session.create", 0.5);
     let restore = env
@@ -154,24 +165,24 @@ fn a_trigger_while_a_restore_is_running_creates_no_duplicates() {
     });
 
     // Auto-restore turned on, and triggered, mid-restore.
-    std::fs::write(server.dir().join("init.lua"), hook()).unwrap();
+    std::fs::write(server.dir().join("init.lua"), hook(&env)).unwrap();
     reload_config(&server);
     let entries = wait_for_auto_restores(&env, 1);
 
     let restored = restore.wait().assert_success();
     assert_eq!(restored.lines_starting("created").len(), 3, "{restored}");
-    assert_eq!(sorted_labels(&server), labels);
+    assert_eq!(server.sorted_labels(), labels);
     assert!(entries[0].contains("already restored"), "{entries:#?}");
 }
 
 #[test]
 fn if_the_server_never_becomes_ready_the_background_restore_gives_up_and_logs_it() {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-proj"]);
+    env.saved_on_an_earlier_server(&["zz-proj"]);
     let go = env.root().join("go");
     let mut server = env
         .server()
-        .init_lua(format!("{}{}", hook(), held_until(&go)))
+        .init_lua(format!("{}{}", hook(&env), held_until(&go)))
         .env("REX_RESURRECT_READY_TIMEOUT", "1")
         .start_without_waiting();
     let entries = wait_for_auto_restores(&env, 1);
@@ -194,7 +205,7 @@ fn the_background_restore_holds_none_of_the_servers_open_files() {
     let go = env.root().join("go");
     let mut server = env
         .server()
-        .init_lua(format!("{}{}", hook(), held_until(&go)))
+        .init_lua(format!("{}{}", hook(&env), held_until(&go)))
         .holding_open(&held)
         .start_without_waiting();
     let background = wait_for("the background auto-restore", || {
@@ -215,13 +226,52 @@ fn the_background_restore_holds_none_of_the_servers_open_files() {
     wait_for_auto_restores(&env, 1);
 }
 
+/// The server runs init.lua in its own environment, which usually lacks the
+/// user's `XDG_STATE_HOME` (the Rex app sets none). The hook
+/// `auto-restore --print-hook` prints pins the state directory resolved
+/// where it ran, so auto-restore uses the same one as the user's shells.
+#[test]
+fn the_printed_hook_restores_from_the_state_directory_it_was_printed_with() {
+    let env = TestEnv::new();
+    // The user's shells: no REX_RESURRECT_STATE_DIR, an XDG_STATE_HOME of
+    // their own.
+    let xdg_state_home = env.root().join("user-xdg-state");
+    let users = |cmd: ResurrectCmd| {
+        cmd.env_remove(STATE_DIR_VAR)
+            .env("XDG_STATE_HOME", &xdg_state_home)
+    };
+    {
+        let before = env.start_server();
+        let fixture = before.create_session("zz-proj", &[window(shell(env.mkdir("proj")))]);
+        before.wait_for_pwds(&fixture);
+        users(env.resurrect(&before))
+            .arg("save")
+            .run()
+            .assert_success();
+    }
+    let printed = users(env.resurrect_at("unix:///tmp/rxt-none/s.sock"))
+        .args(["auto-restore", "--print-hook"])
+        .run()
+        .assert_success();
+
+    // The server's environment names another state directory.
+    let server = env.server().init_lua(&printed.stdout).start();
+    let log = xdg_state_home.join("rex-resurrect/rex-resurrect.log");
+    wait_for("auto-restore's entry in the user's log", || {
+        let log = std::fs::read_to_string(&log).unwrap_or_default();
+        log.contains(" auto-restore").then_some(())
+    });
+
+    assert_eq!(server.sorted_labels(), ["zz-proj"]);
+}
+
 #[test]
 fn rex_config_check_runs_the_hook_but_nothing_is_restored() {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-proj"]);
+    env.saved_on_an_earlier_server(&["zz-proj"]);
     let server = env.start_server();
     let config = env.root().join("hook.lua");
-    std::fs::write(&config, hook()).unwrap();
+    std::fs::write(&config, hook(&env)).unwrap();
 
     // `rex config check` loads init.lua in its own process, running the hook.
     let out = server

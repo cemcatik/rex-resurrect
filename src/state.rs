@@ -1,5 +1,6 @@
 //! rex-resurrect's state directory: snapshots, the lineage map and anything
-//! else rex-resurrect has to remember between runs.
+//! else rex-resurrect has to remember between runs, and the file operations
+//! every module uses on it.
 //!
 //! Location, first match wins:
 //! 1. `$REX_RESURRECT_STATE_DIR`
@@ -13,8 +14,10 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use crate::error::{Context, Error, Result};
+use crate::settings;
 
 pub const STATE_DIR_VAR: &str = "REX_RESURRECT_STATE_DIR";
 
@@ -25,7 +28,7 @@ pub struct StateDir {
 
 impl StateDir {
     pub fn from_env() -> Result<StateDir> {
-        let var = |name| std::env::var_os(name).filter(|v: &OsString| !v.is_empty());
+        let var = settings::env_non_empty;
         resolve(var(STATE_DIR_VAR), var("XDG_STATE_HOME"), var("HOME"))
             .map(|root| StateDir { root })
             .ok_or_else(|| {
@@ -78,15 +81,21 @@ fn resolve(
     home.map(|home| PathBuf::from(home).join(".local/state/rex-resurrect"))
 }
 
-/// Writes a state file atomically, readable and writable by the user only
-/// (`0600`): the contents go to a temporary file next to it (see
-/// [`temp_path`]), which is then renamed over `path`, so neither a reader
-/// nor a crash ever sees a partial file. Missing parent directories are
+/// Writes a state file atomically (see [`write_atomically`]), readable and
+/// writable by the user only (`0600`). Missing parent directories are
 /// created private (`0700`). Every state file is written through here.
 pub fn write_file(path: &Path, contents: &[u8]) -> Result<()> {
     create_private_dirs(parent_of(path))?;
+    write_atomically(path, contents, 0o600)
+}
+
+/// Writes `contents` to `path` with permissions `mode`, atomically: they go
+/// to a temporary file next to it (see [`temp_path`]), which is then
+/// renamed over `path`, so neither a reader nor a crash ever sees a partial
+/// file. The directory must exist.
+pub fn write_atomically(path: &Path, contents: &[u8], mode: u32) -> Result<()> {
     let temp = temp_path(path);
-    let written = write_new_private_file(&temp, contents).and_then(|()| fs::rename(&temp, path));
+    let written = write_new_file(&temp, contents, mode).and_then(|()| fs::rename(&temp, path));
     if written.is_err() {
         let _ = fs::remove_file(&temp);
     }
@@ -106,10 +115,11 @@ pub fn write_symlink(link: &Path, target: &Path) -> Result<()> {
     written.with_context(|| format!("pointing {} at {}", link.display(), target.display()))
 }
 
-/// Where [`write_file`] stages `path`: `.<name>.<pid>.tmp` in the same
-/// directory. Hidden and without the real file's extension, so listings
-/// that pick files by extension never see one, even a leftover from a crash.
-pub fn temp_path(path: &Path) -> PathBuf {
+/// Where [`write_atomically`] stages `path`: `.<name>.<pid>.tmp` in the
+/// same directory. Hidden and without the real file's extension, so
+/// listings that pick files by extension never see one, even a leftover
+/// from a crash.
+fn temp_path(path: &Path) -> PathBuf {
     let name = path
         .file_name()
         .expect("state files have a file name")
@@ -117,13 +127,94 @@ pub fn temp_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{name}.{}.tmp", std::process::id()))
 }
 
-fn write_new_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+/// Whether `name`, taken from outside (a block ID, a snapshot ID), can name
+/// a state file directly inside a directory: not empty, no `/` or NUL, so it
+/// can't reach anywhere else, and not hidden, so it can't be a temporary
+/// file.
+pub fn is_plain_file_name(name: &str) -> bool {
+    !name.is_empty() && !name.starts_with('.') && !name.contains(['/', '\0'])
+}
+
+/// Whether `name` is one of [`temp_path`]'s: `.<name>.<pid>.tmp`.
+pub fn is_temp_name(name: &str) -> bool {
+    name.strip_prefix('.')
+        .and_then(|name| name.strip_suffix(".tmp"))
+        .and_then(|name| name.rsplit_once('.'))
+        .is_some_and(|(file, pid)| {
+            !file.is_empty() && !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit())
+        })
+}
+
+/// How long a temporary file goes unchanged before it counts as left
+/// behind by a write that crashed: far longer than any write takes.
+const STALE_AFTER: Duration = Duration::from_secs(60 * 60);
+
+/// Removes the temporary files in `dir` (the names `is_temp` picks) that
+/// haven't changed for over an hour: what writes that crashed before their
+/// rename left behind. Fresher ones may belong to writes still going on.
+pub fn remove_stale_temp_files(dir: &Path, is_temp: impl Fn(&str) -> bool) -> Result<()> {
+    let stale_before = SystemTime::now() - STALE_AFTER;
+    for entry in read_dir_or_empty(dir)? {
+        if !entry.file_name().to_str().is_some_and(&is_temp) {
+            continue;
+        }
+        // Not following symlinks: a temporary symlink is stale by its own age.
+        let metadata = entry
+            .metadata()
+            .with_context(|| format!("reading {}", entry.path().display()))?;
+        let modified = metadata
+            .modified()
+            .with_context(|| format!("reading {}", entry.path().display()))?;
+        if !metadata.is_dir() && modified < stale_before {
+            remove_if_exists(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+/// The entries of `dir`; none if it doesn't exist.
+pub fn read_dir_or_empty(dir: &Path) -> Result<Vec<fs::DirEntry>> {
+    let listing = || format!("listing {}", dir.display());
+    match fs::read_dir(dir) {
+        Ok(entries) => entries
+            .collect::<std::io::Result<_>>()
+            .with_context(listing),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e).with_context(listing),
+    }
+}
+
+/// Removes the file (or symlink) at `path`; `false` if there was none.
+pub fn remove_if_exists(path: &Path) -> Result<bool> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e).with_context(|| format!("removing {}", path.display())),
+    }
+}
+
+/// Removes a file or a whole directory; one that's already gone is fine.
+pub fn remove_entry(path: &Path) -> Result<()> {
+    let removed = match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
+        Ok(_) => fs::remove_file(path),
+        Err(e) => Err(e),
+    };
+    match removed {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err(e).with_context(|| format!("removing {}", path.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn write_new_file(path: &Path, contents: &[u8], mode: u32) -> std::io::Result<()> {
     // Left over from a crashed run whose process had the same pid.
     let _ = fs::remove_file(path);
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(0o600)
+        .mode(mode)
         .open(path)?;
     file.write_all(contents)?;
     file.sync_all()

@@ -26,7 +26,8 @@ pub fn shell(dir: impl AsRef<Path>) -> Layout {
     block(json!({ "cwd": dir.as_ref().to_str().unwrap() }))
 }
 
-/// A terminal block with arbitrary options (`cwd`, `command`, `initial_input`, ...).
+/// A shell block with arbitrary terminal options (`cwd`, `command`,
+/// `initial_input`, ...).
 pub fn block(options: Value) -> Layout {
     let Value::Object(options) = options else {
         panic!("block options must be a JSON object");

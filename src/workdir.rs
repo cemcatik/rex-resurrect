@@ -8,24 +8,21 @@ use crate::error::{Error, Result};
 use crate::rex::Rex;
 use crate::rex::api::TerminalProcess;
 
-/// The user's home directory: where a block starts when it has no usable
-/// working directory.
-pub fn home() -> Result<PathBuf> {
-    std::env::home_dir()
-        .filter(|home| home.is_absolute())
-        .ok_or_else(|| Error::new("can't find the home directory: set HOME"))
-}
-
 /// Where the block's shell is: what it last reported through the terminal
 /// `pwd` method, or, while it hasn't reported anything, the foreground
-/// process's directory from the terminal `process` method.
-pub fn working_directory(rex: &Rex, session_id: &str, block_id: &str) -> Result<PathBuf> {
+/// process's directory from what its terminal `process` method answered
+/// (`process`).
+pub fn working_directory(
+    rex: &Rex,
+    session_id: &str,
+    block_id: &str,
+    process: &TerminalProcess,
+) -> Result<PathBuf> {
     let pwd = rex.terminal_pwd(session_id, block_id)?;
     if let Some(path) = pwd.pwd.as_deref().and_then(path_from_file_url) {
         return Ok(path);
     }
-    let process = rex.terminal_process(session_id, block_id)?;
-    process_directory(&process).ok_or_else(|| {
+    process_directory(process).ok_or_else(|| {
         Error::new(format!(
             "block {block_id}: neither `pwd` nor `process` reports a working directory"
         ))

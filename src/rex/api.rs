@@ -3,15 +3,13 @@
 //!
 //! Parsing is strict about what rex-resurrect relies on (a changed shape is an
 //! error, not an empty snapshot) and lenient about the rest: unknown keys are
-//! ignored, and keys Rex omits instead of sending `false`/`null` (`active`,
-//! `windows` on an empty session, `layout` on a tiled layer whose blocks all
-//! floated away) default.
+//! ignored, and keys Rex omits instead of sending `false`/`null` (`windows`
+//! on an empty session, `layout` on a tiled layer whose blocks all floated
+//! away) default.
 //!
-//! The model covers the fields rex-resurrect's features use, including some
-//! the current code doesn't read yet (labels, host IDs, process details).
-#![allow(dead_code)]
+//! The model covers only the fields rex-resurrect reads.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -49,7 +47,6 @@ pub struct SessionList {
 #[derive(Debug, Deserialize)]
 pub struct SessionSummary {
     pub session_id: String,
-    pub label: String,
 }
 
 // ---- session.view ----------------------------------------------------------
@@ -61,7 +58,7 @@ pub struct SessionView {
     /// Absent for a session with no windows.
     #[serde(default)]
     pub active_window_id: Option<String>,
-    /// In window (tab) order. Absent for a session with no windows (Rex
+    /// In window order. Absent for a session with no windows (Rex
     /// keeps a session live after its last shell exits).
     #[serde(default)]
     pub windows: Vec<WindowView>,
@@ -97,8 +94,6 @@ impl SessionView {
 pub struct WindowView {
     pub window_id: String,
     pub label: String,
-    #[serde(default)]
-    pub active: bool,
     pub layers: Vec<LayerView>,
 }
 
@@ -193,7 +188,7 @@ pub struct BlockView {
     pub host_id: Option<String>,
 }
 
-// ---- terminal block methods (through block.method) ------------------------
+// ---- shell blocks' terminal methods (through block.method) -----------------
 
 /// The terminal `pwd` method. `{}` until the shell has reported a directory
 /// (through OSC 7), and forever for shells that never do.
@@ -242,14 +237,34 @@ const LOGIN: &str = "login";
 #[derive(Debug, Deserialize)]
 pub struct ProcessInfo {
     pub pid: u32,
+    /// The name of the executable it runs, which isn't always the name it
+    /// was started by: Claude Code's `claude` is a symlink to an executable
+    /// named for its version.
     pub name: String,
+    /// The path it was started by (`~/.local/bin/claude`), before symlinks.
     #[serde(default)]
-    pub path: Option<PathBuf>,
+    pub invoked_path: Option<PathBuf>,
+    /// Absent for root processes.
     #[serde(default)]
     pub argv0: Option<String>,
     /// Physical path (`/private/tmp/...`). Absent for root processes.
     #[serde(default)]
     pub cwd: Option<PathBuf>,
+}
+
+impl ProcessInfo {
+    /// Every name the process goes by: its executable's, and the file names
+    /// of the path and `argv0` it was started by (the command as typed).
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        fn file_name(path: &Path) -> Option<&str> {
+            path.file_name().and_then(|name| name.to_str())
+        }
+        let invoked = self.invoked_path.as_deref().and_then(file_name);
+        let argv0 = self.argv0.as_deref().map(Path::new).and_then(file_name);
+        std::iter::once(self.name.as_str())
+            .chain(invoked)
+            .chain(argv0)
+    }
 }
 
 /// Arguments of the terminal `format` method, which renders the block's
@@ -348,7 +363,6 @@ pub struct CreatedSession {
 
 #[derive(Debug, Deserialize)]
 pub struct CreatedWindow {
-    pub window_id: String,
     /// In depth-first, before-then-after order of the window's layout.
     pub block_ids: Vec<String>,
 }

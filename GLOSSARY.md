@@ -68,7 +68,7 @@ A server with no live sessions worth saving: none at all, or only untouched ones
 A session with nothing worth restoring: one window holding one shell block, default window and block labels, its working directory still home, and no last command. Its label doesn't count, so a session that was only renamed is still untouched. Untouched sessions aren't saved.
 
 **Scrollback**:
-A shell block's earlier output, saved with a snapshot and printed back above the block's new prompt when it's restored. A block that was showing a full-screen program (on the terminal's alternate screen) has none saved.
+A shell block's earlier output, saved with a snapshot and printed back above the block's new prompt when it's restored. A block that was showing a full-screen program (on the terminal's alternate screen), or running a program that draws its interface on the main screen (`claude`, by default), has none saved.
 _Avoid_: history (that's the shell's command history), pane contents
 
 **Autosave**:
@@ -83,7 +83,7 @@ A command the recorder doesn't record, leaving the previous last command in plac
 _Avoid_: skip list, skipped command
 
 **Last command**:
-The command a restored shell block gets typed at its prompt, never run: the most recent command the block's outermost shell recorded. A restored block starts out with the last command it was restored with and keeps it, across any number of server instances, until its shell records a new one. A block with neither falls back to the program in its foreground.
+The command a restored shell block gets typed at its prompt, never run: the most recent command the block's outermost shell recorded. A restored block starts out with the last command it was restored with, or with none, and keeps that, across any number of server instances, until its shell records a new one. Only a block nothing has recorded anything for (its shell started before the recorder was installed) falls back to the program in its foreground.
 _Avoid_: last history entry
 
 ### Restoring

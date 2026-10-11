@@ -17,9 +17,11 @@
 //! [`server_process`].
 
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::account;
 use crate::error::{Context, Error, Result};
 use crate::instance::RestoreLock;
 use crate::log::Log;
@@ -27,8 +29,8 @@ use crate::process;
 use crate::restore;
 use crate::rex::Rex;
 use crate::rex::server_process::{self, ServerProcess, Starter};
-use crate::state::StateDir;
-use crate::workdir;
+use crate::settings;
+use crate::state::{STATE_DIR_VAR, StateDir};
 
 #[derive(Debug, Default)]
 pub struct AutoRestoreOptions {
@@ -36,6 +38,9 @@ pub struct AutoRestoreOptions {
     /// foreground. Without it: find the server that started this process
     /// and do that in the background.
     pub server_pid: Option<u32>,
+    /// Print the hook, the line that turns auto-restore on in init.lua,
+    /// and do nothing else.
+    pub print_hook: bool,
 }
 
 /// How long the background run waits for the server to be ready, in seconds.
@@ -48,10 +53,51 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(1);
 const CHECK_INTERVAL: Duration = Duration::from_millis(200);
 
 pub fn run(options: &AutoRestoreOptions) -> Result<ExitCode> {
+    if options.print_hook {
+        println!("{}", hook()?);
+        return Ok(ExitCode::SUCCESS);
+    }
     match options.server_pid {
         None => start_in_background(),
         Some(pid) => restore_when_ready(pid),
     }
+}
+
+/// The line that turns auto-restore on in init.lua:
+/// `os.execute([[REX_RESURRECT_STATE_DIR='<state dir>' '<rex-resurrect>' auto-restore]])`.
+///
+/// Both are pinned as they are here. The server runs init.lua in its own
+/// environment, not the user's shell's: the Rex app starts it with a bare
+/// `PATH`, so `rex-resurrect` needs its full path, and with no `XDG_*`, so
+/// auto-restore could otherwise pick a different state directory from the
+/// user's shells and their recorder.
+fn hook() -> Result<String> {
+    let program = std::env::current_exe().with_context(|| "finding rex-resurrect's own path")?;
+    let state = StateDir::from_env()?;
+    let command = format!(
+        "{STATE_DIR_VAR}={} {} auto-restore",
+        shell_word(state.path())?,
+        shell_word(&program)?
+    );
+    Ok(format!("os.execute({})", lua_long_string(&command)))
+}
+
+/// `path` as one single-quoted `sh` word.
+fn shell_word(path: &Path) -> Result<String> {
+    let path = path
+        .to_str()
+        .ok_or_else(|| Error::new(format!("{} isn't valid UTF-8", path.display())))?;
+    Ok(format!("'{}'", path.replace('\'', r"'\''")))
+}
+
+/// `text` as a Lua long string (`[[...]]`), with as many `=` in its
+/// brackets as it takes for nothing in `text` to end it early.
+fn lua_long_string(text: &str) -> String {
+    let mut level = String::new();
+    while text.contains(&format!("]{level}]")) || text.ends_with(&format!("]{level}")) {
+        level.push('=');
+    }
+    format!("[{level}[{text}]{level}]")
 }
 
 /// Starts the background run, aimed at the server that started this
@@ -99,14 +145,15 @@ fn restore_when_ready(pid: u32) -> Result<ExitCode> {
         .ok_or_else(|| Error::new(format!("there's no Rex server with pid {pid}")))?;
     let ready = wait_until_ready(&server, timeout)?;
     let lock = RestoreLock::acquire(&state)?;
-    let restored = restore::restore_unrestored_instance(&ready.rex, &state, &lock)?;
-    let outcome = match &restored {
-        None => "already restored into; nothing to do".to_string(),
+    let (outcome, status) = match restore::restore_unrestored_instance(&ready.rex, &state, &lock)? {
+        None => (
+            "already restored into; nothing to do".to_string(),
+            ExitCode::SUCCESS,
+        ),
         Some(report) => {
-            report.log_failures(&state, "auto-restore");
             let mut printed = Vec::new();
-            let _ = report.print(&mut printed);
-            String::from_utf8_lossy(&printed).into_owned()
+            let status = report.finish(&state, "auto-restore", &mut printed);
+            (String::from_utf8_lossy(&printed).into_owned(), status)
         }
     };
     let message = format!(
@@ -115,10 +162,7 @@ fn restore_when_ready(pid: u32) -> Result<ExitCode> {
     );
     println!("{message}");
     Log::new(&state).append(&message)?;
-    Ok(match restored {
-        Some(report) if report.failed() > 0 => ExitCode::FAILURE,
-        _ => ExitCode::SUCCESS,
-    })
+    Ok(status)
 }
 
 /// A server that's ready, reached at the endpoint it answered on.
@@ -134,7 +178,7 @@ struct Ready {
 /// out to be another server's.
 fn wait_until_ready(server: &ServerProcess, timeout: Duration) -> Result<Ready> {
     let deadline = Instant::now() + timeout;
-    let mut candidates = server.candidate_endpoints(&workdir::home()?);
+    let mut candidates = server.candidate_endpoints(&account::home()?);
     let mut other_servers = Vec::new();
     loop {
         let mut not_ready = Vec::new();
@@ -183,14 +227,13 @@ fn wait_until_ready(server: &ServerProcess, timeout: Duration) -> Result<Ready> 
 
 /// `REX_RESURRECT_READY_TIMEOUT`, or the default of a minute.
 fn ready_timeout() -> Result<Duration> {
-    let Some(value) = std::env::var_os(READY_TIMEOUT_VAR).filter(|v| !v.is_empty()) else {
+    let Some(value) = settings::env_non_empty(READY_TIMEOUT_VAR) else {
         return Ok(DEFAULT_READY_TIMEOUT);
     };
     value
         .to_str()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|&seconds| seconds > 0)
-        .map(Duration::from_secs)
+        .and_then(settings::whole_number_at_least_1)
+        .map(|seconds| Duration::from_secs(seconds.get()))
         .ok_or_else(|| {
             Error::new(format!(
                 "{READY_TIMEOUT_VAR} must be a whole number of seconds, at least 1, not {value:?}"

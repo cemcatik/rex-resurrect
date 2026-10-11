@@ -47,8 +47,15 @@
 #   $HOME/.local/state/rex-resurrect.
 # - Contents: the block's last command, UTF-8 text on one line, ending in a
 #   newline (readers accept it without one). Only the latest is kept.
+# - An empty line records that the block has no last command. Restore writes
+#   one for each block it creates with nothing to type, so rex-resurrect never
+#   takes the program in that block's foreground for its last command (that
+#   fallback is only for blocks with no file at all). Recorders never write
+#   one: they only record commands.
 # - Written to a temporary file in the same directory whose name starts with
 #   `.`, then renamed over the record, so a reader never sees half a command.
+#   A save removes such a file once it has gone unchanged for an hour (left
+#   behind by a recorder that crashed).
 # - The recorder directory is private (0700): commands can hold secrets.
 
 # The ignore list's defaults: commands that only look or move around, or
@@ -69,7 +76,8 @@ _rex_resurrect_ignored() {
 
 _rex_resurrect_record() {
   emulate -L zsh
-  # $1 is the command line as typed (aliases unexpanded).
+  # $1 is the command line as typed (aliases unexpanded). Any control
+  # character disqualifies it, tab included: typed back, a tab completes.
   [[ -n $1 && $1 != *[[:cntrl:]]* && -n $REX_BLOCK ]] || return 0
   _rex_resurrect_ignored "$1" && return 0
   local dir

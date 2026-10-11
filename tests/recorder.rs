@@ -7,12 +7,9 @@ mod common;
 
 use std::path::Path;
 
+use common::files::has_entries;
 use common::server::wait_for_file;
 use common::*;
-
-fn has_entries(dir: &Path) -> bool {
-    std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())
-}
 
 /// Saves, kills the session labelled `label`, restores, and waits until each
 /// restored block (in layout order) shows its expected command typed.

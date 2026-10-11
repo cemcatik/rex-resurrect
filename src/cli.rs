@@ -1,6 +1,6 @@
 //! Command-line parsing.
 //!
-//! Each subcommand parses its own options into the options struct its module
+//! Each subcommand with options parses them into the options struct its module
 //! defines. To add a subcommand: a `Command` variant, a line in `parse`, a
 //! `parse_<name>` function and a line in `USAGE`.
 
@@ -9,15 +9,13 @@ use std::fmt;
 
 use crate::auto_restore::AutoRestoreOptions;
 use crate::autosave::{AutosaveCommand, InstallOptions};
-use crate::list::ListOptions;
 use crate::restore::RestoreOptions;
-use crate::save::SaveOptions;
 use crate::scheduler::Interval;
 
 pub enum Command {
-    Save(SaveOptions),
+    Save,
     Restore(RestoreOptions),
-    List(ListOptions),
+    List,
     Autosave(AutosaveCommand),
     AutoRestore(AutoRestoreOptions),
     Help,
@@ -52,6 +50,8 @@ Autosave install options:
   --interval <minutes>  Save this often instead (default: 15)
 
 Auto-restore options:
+  --print-hook        Print the line that turns auto-restore on, to append to
+                      Rex's init.lua; it pins this state directory
   --server-pid <pid>  Wait for the Rex server with this pid and restore into
                       it, in the foreground (what the background run does)
 
@@ -66,6 +66,9 @@ Environment:
                            ~/.local/state/rex-resurrect)
   REX_RESURRECT_KEEP       How many snapshots save keeps, newest first
                            (default: 10)
+  REX_RESURRECT_NO_SCROLLBACK
+                           Programs, separated by spaces, whose blocks save
+                           keeps no scrollback for (default: claude)
   REX_RESURRECT_READY_TIMEOUT
                            How long auto-restore waits for the Rex server to
                            be ready, in seconds (default: 60)
@@ -89,9 +92,9 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, UsageE
         return Err(UsageError("missing command".into()));
     };
     match command.as_str() {
-        "save" => parse_save(&mut args).map(Command::Save),
+        "save" => no_options(&mut args, "save").map(|()| Command::Save),
         "restore" => parse_restore(&mut args).map(Command::Restore),
-        "list" => parse_list(&mut args).map(Command::List),
+        "list" => no_options(&mut args, "list").map(|()| Command::List),
         "autosave" => parse_autosave(&mut args).map(Command::Autosave),
         "auto-restore" => parse_auto_restore(&mut args).map(Command::AutoRestore),
         "help" => Ok(Command::Help),
@@ -100,12 +103,12 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, UsageE
     }
 }
 
-fn parse_save(args: &mut Args) -> Result<SaveOptions, UsageError> {
-    let options = SaveOptions::default();
-    if let Some(arg) = args.next() {
-        return Err(args.unexpected(&arg, "save"));
+/// For a command that takes no options or arguments.
+fn no_options(args: &mut Args, command: &str) -> Result<(), UsageError> {
+    match args.next() {
+        Some(arg) => Err(args.unexpected(&arg, command)),
+        None => Ok(()),
     }
-    Ok(options)
 }
 
 fn parse_restore(args: &mut Args) -> Result<RestoreOptions, UsageError> {
@@ -117,14 +120,6 @@ fn parse_restore(args: &mut Args) -> Result<RestoreOptions, UsageError> {
             "-n" | "--dry-run" => options.dry_run = true,
             _ => return Err(args.unexpected(&arg, "restore")),
         }
-    }
-    Ok(options)
-}
-
-fn parse_list(args: &mut Args) -> Result<ListOptions, UsageError> {
-    let options = ListOptions::default();
-    if let Some(arg) = args.next() {
-        return Err(args.unexpected(&arg, "list"));
     }
     Ok(options)
 }
@@ -169,8 +164,14 @@ fn parse_auto_restore(args: &mut Args) -> Result<AutoRestoreOptions, UsageError>
                     UsageError(format!("--server-pid takes a process ID, not {pid:?}"))
                 })?);
             }
+            "--print-hook" => options.print_hook = true,
             _ => return Err(args.unexpected(&arg, "auto-restore")),
         }
+    }
+    if options.print_hook && options.server_pid.is_some() {
+        return Err(UsageError(
+            "--print-hook and --server-pid can't be combined".into(),
+        ));
     }
     Ok(options)
 }

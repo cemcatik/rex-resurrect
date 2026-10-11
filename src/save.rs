@@ -5,21 +5,33 @@ use std::process::ExitCode;
 
 use crate::capture;
 use crate::create;
-use crate::error::{Context, Result};
+use crate::error::{Context, Error, Result};
 use crate::instance::RestoreLock;
 use crate::lineage::LineageMap;
-use crate::restore;
+use crate::restore::{self, CreatedBlocks};
 use crate::retention::Retention;
 use crate::rex::Rex;
-use crate::scrollback::ScrollbackStore;
+use crate::scrollback::{NoScrollbackPrograms, ScrollbackStore};
 use crate::snapshot::{SavedLayout, SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 use crate::timestamp::Timestamp;
 use crate::upkeep::{self, Live};
 
-#[derive(Debug, Default)]
-pub struct SaveOptions {}
+/// Save's settings, from the environment.
+pub struct Settings {
+    pub retention: Retention,
+    pub no_scrollback: NoScrollbackPrograms,
+}
+
+impl Settings {
+    pub fn from_env() -> Result<Settings> {
+        Ok(Settings {
+            retention: Retention::from_env()?,
+            no_scrollback: NoScrollbackPrograms::from_env()?,
+        })
+    }
+}
 
 /// What a save did.
 pub enum Saved {
@@ -32,24 +44,36 @@ pub enum Saved {
 
 /// Restores first if rex-resurrect hasn't restored into this server instance
 /// yet, so that a save on a freshly started server can't replace the latest
-/// snapshot with a near-empty one. Still saves if some sessions failed to
-/// restore, but then exits non-zero.
+/// snapshot with a near-empty one. The blocks that restore created are
+/// saved as it created them: their shells are still starting. Still saves if
+/// some sessions failed to restore, but then exits non-zero. If every
+/// session it tried failed, it restored nothing, so it saves nothing either:
+/// the latest snapshot stays as it is, and the next save restores first
+/// again.
 ///
 /// Holds the restore lock throughout: a save that finds a restore running
 /// waits for it rather than saving a half-restored server.
-pub fn run(options: &SaveOptions) -> Result<ExitCode> {
+pub fn run() -> Result<ExitCode> {
     // Configuration first: a bad setting fails before anything is restored.
-    let retention = Retention::from_env()?;
+    let settings = Settings::from_env()?;
     let rex = Rex::from_env();
     let state = StateDir::from_env()?;
     let lock = RestoreLock::acquire(&state)?;
-    let restored_first = restore::restore_unrestored_instance(&rex, &state, &lock)?;
-    if let Some(report) = &restored_first {
+    let mut status = ExitCode::SUCCESS;
+    let mut restored_blocks = CreatedBlocks::new();
+    if let Some(mut report) = restore::restore_unrestored_instance(&rex, &state, &lock)? {
         println!("restored first: this server instance hadn't been restored into yet");
-        let _ = report.print(&mut std::io::stdout().lock());
-        report.log_failures(&state, "save (restoring first)");
+        let mut out = std::io::stdout().lock();
+        status = report.finish(&state, "save (restoring first)", &mut out);
+        if report.every_attempt_failed() {
+            return Err(Error::new(
+                "every session failed to restore into this server instance, so nothing was \
+                 saved: the latest snapshot is unchanged, and the next save restores first again",
+            ));
+        }
+        restored_blocks = std::mem::take(&mut report.created_blocks);
     }
-    match save(&rex, &state, retention, options)? {
+    match save(&rex, &state, settings, restored_blocks)? {
         Saved::Snapshot { path, sessions } => {
             println!("saved {sessions} session(s) to {}", path.display());
         }
@@ -57,19 +81,18 @@ pub fn run(options: &SaveOptions) -> Result<ExitCode> {
             println!("nothing to save: no sessions worth saving; the latest snapshot is unchanged");
         }
     }
-    Ok(match restored_first {
-        Some(report) if report.failed() > 0 => ExitCode::FAILURE,
-        _ => ExitCode::SUCCESS,
-    })
+    Ok(status)
 }
 
+/// Saves every session worth saving. `restored`: the blocks a restore this
+/// run made first created, which are saved as they were created.
 pub fn save(
     rex: &Rex,
     state: &StateDir,
-    retention: Retention,
-    options: &SaveOptions,
+    settings: Settings,
+    restored: CreatedBlocks,
 ) -> Result<Saved> {
-    let saved = save_snapshot(rex, state, retention, options);
+    let saved = save_snapshot(rex, state, settings, restored);
     // Scrollback is kept exactly as long as its snapshot: old snapshots'
     // goes with them, and a save that wrote no snapshot (an empty server, a
     // failure) leaves none behind.
@@ -85,26 +108,29 @@ pub fn save(
 fn save_snapshot(
     rex: &Rex,
     state: &StateDir,
-    retention: Retention,
-    _options: &SaveOptions,
+    settings: Settings,
+    restored: CreatedBlocks,
 ) -> Result<Saved> {
-    // Taken first: each block's scrollback is saved under the snapshot's
-    // name as the walk reaches it.
+    // Taken first: each kept session's scrollback is saved under the
+    // snapshot's name as the walk reaches it.
     let taken_at = Timestamp::now();
     let lineages = LineageMap::load(state)?;
-    let local = capture::Local::read(rex, state, taken_at)?;
+    let context =
+        capture::CaptureContext::read(rex, state, taken_at, restored, settings.no_scrollback)?;
     let mut live = Live::new();
     let mut sessions = Vec::new();
     for summary in rex.list_sessions()? {
         let view = rex.view_session(&summary.session_id)?;
         live.add(&view);
         let lineage = lineages.lineage_of(&view.session_id);
-        let saved = capture::saved_session(rex, &local, &view, lineage)
-            .with_context(|| format!("saving session {:?} ({})", view.label, view.session_id))?;
-        if worth_saving(&saved, &local.home) {
+        let saving = || format!("saving session {:?} ({})", view.label, view.session_id);
+        let captured =
+            capture::saved_session(rex, &context, &view, lineage).with_context(saving)?;
+        if worth_saving(&captured.saved, &context.home) {
+            let saved = captured
+                .with_scrollback(rex, &context.scrollback)
+                .with_context(saving)?;
             sessions.push(saved);
-        } else {
-            local.scrollback.discard(&saved)?;
         }
     }
     if sessions.is_empty() {
@@ -114,10 +140,16 @@ fn save_snapshot(
     snapshot
         .validate()
         .with_context(|| "the snapshot failed validation, so nothing was written")?;
-    let path = SnapshotStore::new(state).write(&snapshot, taken_at, retention)?;
+    let path = SnapshotStore::new(state).write(&snapshot, settings.retention)?;
     upkeep::forget_what_is_not_live(state, &live).with_context(|| {
         format!(
             "saved {}, but then failed to forget blocks and sessions that are gone",
+            path.display()
+        )
+    })?;
+    upkeep::remove_stale_temp_files(state).with_context(|| {
+        format!(
+            "saved {}, but then failed to remove temporary files that crashed writes left behind",
             path.display()
         )
     })?;

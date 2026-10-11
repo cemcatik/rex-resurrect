@@ -5,11 +5,8 @@ mod common;
 
 use std::path::Path;
 
+use common::files::has_entries;
 use common::*;
-
-fn has_entries(dir: &Path) -> bool {
-    std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())
-}
 
 /// A server holding one fixture session whose block has reported its `pwd`.
 fn server_with_fixture(env: &TestEnv, label: &str) -> (Server, FixtureSession) {

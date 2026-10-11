@@ -135,9 +135,9 @@ since, so restoring an older snapshot never brings back an old version of a sess
 have. Kill the live one first if that's what you want.
 
 A block that can't come back as it was still comes back as a shell, so the layout around it
-stays intact. A block whose directory no longer exists opens in your home directory. A
-non-terminal block, a block on another host, and a window whose blocks have all floated come
-back as a plain shell in your home directory. Floating blocks aren't saved.
+stays intact. A block whose directory no longer exists opens in your home directory. A block
+that isn't a shell block, a block on another host, and a window whose blocks have all floated
+come back as a plain shell in your home directory. Floating blocks aren't saved.
 
 Each restored block's last command is typed at its prompt but **never run**: press Enter to
 resume, edit it, or clear it. Only single-line commands are typed; a block with no last
@@ -150,10 +150,25 @@ and reflows when you resize the block. A block that was showing a full-screen pr
 `less`, `top`, anything on the terminal's alternate screen) gets no scrollback, so you never see
 a frozen picture of the program; its command still comes back typed at the prompt.
 
+Some programs draw their interface on the main screen instead, where Rex can't tell it from
+earlier output. A block running one of the programs listed in `REX_RESURRECT_NO_SCROLLBACK` gets
+no scrollback either. The list holds program names separated by spaces, matched against the name
+the program was run by (`claude`) and the name of its executable. It defaults to `claude` (Claude
+Code); set it to replace the default, or to an empty string for no programs:
+
+```sh
+export REX_RESURRECT_NO_SCROLLBACK="claude aider"
+```
+
+Set it where `save` sees it, and run `autosave install` again afterwards, so autosave uses it too.
+
 A block the recorder never recorded anything in, such as one whose shell started before you
 loaded the recorder, falls back to the program running in it at save time: `nvim`, a dev server
 or a nested shell comes back with its full command line typed at the prompt. Arguments come
 from `ps`, which drops their quoting. A block that was sitting at a prompt gets an empty prompt.
+A block that restore created never falls back: restore records the last command it typed there,
+or that there was none, so a save that runs while the block's shell is still starting never
+mistakes the startup for a command.
 
 Restore recognises sessions by where they came from, not by label: two saved sessions with the
 same label both come back, a restored session you rename still counts as live, and a session
@@ -162,11 +177,20 @@ you created by hand under a saved label doesn't (see
 
 After a server restart, the first `save` restores before it saves, unless a `restore` already
 ran on that server. A save that runs on a freshly started server (an autosave, say) therefore
-can't replace your latest snapshot with a near-empty one. A save on a server already restored
+can't replace your latest snapshot with a near-empty one. It saves the blocks it just restored
+as it restored them (working directory, last command, scrollback), since their shells are still
+starting and nothing has run in them yet. A save on a server already restored
 into never restores again, even if you've killed restored sessions since. A `--dry-run` or
-`--session` restore doesn't count, because it leaves sessions out; restoring a whole older
-snapshot does. Only one restore runs at a time, and a `save` that starts during a restore waits
-for it to finish.
+`--session` restore doesn't count, because it leaves sessions out: a save after it would replace
+your latest snapshot without the other sessions. Restoring a whole older snapshot does count.
+Only one restore runs at a time, and a `save` that starts during a restore waits for it to
+finish.
+
+A restore in which every session it tried to create failed (a server that refuses them, say)
+restored nothing, so it doesn't count either, whether it was `restore`, auto-restore or the
+restore a `save` runs first. Such a `save` saves nothing: it leaves `latest.json` alone, logs
+why and exits non-zero, and the next save restores first again. If only some sessions fail, the
+save goes ahead and still exits non-zero.
 
 rex-resurrect never starts a Rex server. If Rex isn't running, `save` and `restore` fail and
 say so.
@@ -174,7 +198,8 @@ say so.
 Every failure of `save` or `restore`, including each session that fails to restore, is also
 appended to `rex-resurrect.log` in the state directory, one line per failure starting with a
 UTC timestamp. Successful runs write nothing there, except auto-restore, which logs every
-outcome (see [Auto-restore](#auto-restore)).
+outcome (see [Auto-restore](#auto-restore)). Once the log passes 1 MB (an autosave failing
+every 15 minutes while Rex is quit gets it there in a few months), it keeps only its newest half.
 
 ### Which server
 
@@ -191,21 +216,26 @@ Snapshots and rex-resurrect's own bookkeeping live in its state directory:
 
 It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which live session
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
-sessions that are already live. `last-restored-instance` names the server instance restore last
-ran in, and `restore.lock` makes restores take turns. `recorder/` holds one file per block with
-its last command. Each save that writes a snapshot then removes the `recorder/` files of
+sessions that are already live. `restored-instances` names the server instances restore has run
+in (the 32 most recent), and `restore.lock` makes restores take turns. `recorder/` holds one file
+per block with its last command, or an empty line for a block restore created with none. Each
+save that writes a snapshot then removes the `recorder/` files of
 blocks that no longer exist and the `lineage.json` entries of sessions that no longer exist, so
 the directory doesn't grow forever. A save that fails or writes nothing removes nothing.
 `scrollback/` holds each snapshot's block scrollback, which goes when its snapshot goes; a block
 with 50,000 lines of output takes about 340 KB per snapshot. `rex-resurrect.log` is the log of
 failures and auto-restore outcomes. The recorder finds the state directory the same way, so set
 `REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
+Autosave and auto-restore run outside your shells, so `autosave install` and
+`auto-restore --print-hook` pin the state directory they resolve.
 
 Snapshots, scrollback and recorder files hold commands, and commands can hold secrets, so the
 state directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
 rex-resurrect writes its own files with mode `0600`, and the recorder keeps its files in a
 `0700` directory. Every file except the log is written atomically (a temporary file, then a
 rename), so a crash never leaves a partial snapshot or record behind; the log is appended to.
+A temporary file that a crash does leave behind is removed by the next save that writes a
+snapshot, once it has gone unchanged for an hour.
 
 ## Autosave
 
@@ -237,7 +267,7 @@ finds it when you run it, and prints the server and state directory it chose:
   up on another one;
 - **the state directory**, resolved as above, so autosave shares snapshots with your manual
   runs and the recorder;
-- `REX_RESURRECT_KEEP`, if set;
+- `REX_RESURRECT_KEEP` and `REX_RESURRECT_NO_SCROLLBACK`, if set;
 - the directory of the `rex` on your `PATH`. Install fails if there's no `rex` on it.
 
 Run `autosave install` again after changing any of these, or after moving `rex-resurrect`.
@@ -257,15 +287,22 @@ back after a crash, an update or a reboot without you doing anything. It's one l
 `init.lua`, which is `~/.config/rex/init.lua` unless you've moved it (`rex config check` shows
 where yours is).
 
-**To turn it on**, add the line. This appends it, with the full path of `rex-resurrect`:
+**To turn it on**, add the line. `auto-restore --print-hook` prints it; run this from a shell
+that sees your usual environment (a Rex block, say):
 
 ```sh
 mkdir -p ~/.config/rex &&
-  echo "os.execute([['$(command -v rex-resurrect)' auto-restore]])" >> ~/.config/rex/init.lua
+  rex-resurrect auto-restore --print-hook >> ~/.config/rex/init.lua
 ```
 
-The line reads `os.execute([['/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`. Keep the full
-path: the Rex app starts its server with a bare `PATH`, so a plain `rex-resurrect` isn't found.
+The line reads
+`os.execute([[REX_RESURRECT_STATE_DIR='/Users/you/.local/state/rex-resurrect' '/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`.
+The server runs it in its own environment, not your shell's: the Rex app starts its server with
+a bare `PATH` and no `XDG_*` variables. So the line names `rex-resurrect` by its full path, and
+pins the state directory as it was resolved when you printed it (see
+[Where state lives](#where-state-lives)), so auto-restore uses the same snapshots as your shells
+and their recorder. Print the line again, replacing the old one, after moving `rex-resurrect` or
+changing `REX_RESURRECT_STATE_DIR` or `XDG_STATE_HOME`.
 
 **To turn it off**, delete that line. `autosave uninstall` reminds you to.
 
@@ -291,13 +328,11 @@ until `init.lua` has finished, and carries on in the background:
 - The Rex app may create a session of its own when it finds the server empty. Auto-restore
   leaves it alone, and while it's untouched `save` never saves it.
 
-It runs in the Rex server's environment, not your shell's. If you set `REX_RESURRECT_STATE_DIR`
-for your shells, the server most likely doesn't have it, so put it in the line:
-`os.execute([[REX_RESURRECT_STATE_DIR=/path/to/state '/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`.
-
 `rex config check` runs `init.lua` too. There auto-restore says it wasn't started by a Rex server
 and does nothing. Any other Rex server that reads the same `init.lua` (one you start by hand with
-`rex server run` and no `--config`, say) gets your sessions restored into it too.
+`rex server run` and no `--config`, say) gets your sessions restored into it too. That doesn't
+make your own server look unrestored: rex-resurrect remembers every recent server instance it
+restored into, not just the last.
 
 If auto-restore can't tell which endpoint is the server's (one containing a space that isn't
 percent-encoded; Rex's own endpoints are encoded), it gives up and logs that rather than restore

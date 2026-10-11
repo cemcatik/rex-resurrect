@@ -1,4 +1,5 @@
-//! Upkeep after a save: forgetting blocks and sessions that aren't live.
+//! Upkeep after a save: forgetting blocks and sessions that aren't live, and
+//! removing temporary files that crashed writes left behind.
 //!
 //! Recorder files are keyed by block ID and lineage entries by session ID,
 //! and Rex never reuses either, so once a block or session is gone its file
@@ -13,7 +14,9 @@ use crate::error::Result;
 use crate::lineage::LineageMap;
 use crate::recorder::RecorderFiles;
 use crate::rex::api::SessionView;
-use crate::state::StateDir;
+use crate::scrollback::ScrollbackStore;
+use crate::state::{self, StateDir};
+use crate::store::SnapshotStore;
 
 /// The sessions and blocks live on the server, as save read it.
 #[derive(Debug)]
@@ -45,6 +48,16 @@ impl Live {
             .flat_map(|l| &l.blocks);
         self.blocks.extend(blocks.map(|b| b.block_id.clone()));
     }
+}
+
+/// Removes the temporary files that crashed writes left behind: in the state
+/// directory, next to snapshots and scrollback, and in the recorder
+/// directory. Only stale ones, never one a write still going on may rename.
+pub fn remove_stale_temp_files(state: &StateDir) -> Result<()> {
+    state::remove_stale_temp_files(state.path(), state::is_temp_name)?;
+    SnapshotStore::new(state).remove_stale_temp_files()?;
+    ScrollbackStore::new(state).remove_stale_temp_files()?;
+    RecorderFiles::new(state).remove_stale_temp_files()
 }
 
 /// Removes the recorder files of blocks, and the lineage entries of

@@ -27,14 +27,55 @@
 use std::path::{Component, Path, PathBuf};
 
 use crate::account::Account;
-use crate::error::{Context, Result};
-use crate::rex::Rex;
-use crate::rex::api::{FormatArgs, TerminalOptions};
-use crate::snapshot::{SavedBlock, SavedSession};
+use crate::error::{Error, Result};
+use crate::rex::api::{FormatArgs, TerminalOptions, TerminalProcess};
+use crate::rex::{BlockRef, Rex};
+use crate::snapshot::SavedBlock;
 use crate::state::{self, StateDir};
 use crate::timestamp::Timestamp;
 
 const DIR: &str = "scrollback";
+
+/// The variable listing the programs whose blocks get no scrollback.
+pub const NO_SCROLLBACK_VAR: &str = "REX_RESURRECT_NO_SCROLLBACK";
+
+/// Programs that draw their interface on the main screen, not the alternate
+/// one, and whose blocks therefore get no scrollback: a replay would print a
+/// frozen copy of the interface, as for a full-screen program. Claude Code
+/// (`claude`) is one.
+#[derive(Debug)]
+pub struct NoScrollbackPrograms {
+    names: Vec<String>,
+}
+
+impl NoScrollbackPrograms {
+    /// `$REX_RESURRECT_NO_SCROLLBACK`: program names separated by spaces.
+    /// `claude` if it's unset; none if it's set but empty.
+    pub fn from_env() -> Result<NoScrollbackPrograms> {
+        let Some(value) = std::env::var_os(NO_SCROLLBACK_VAR) else {
+            return Ok(NoScrollbackPrograms {
+                names: vec!["claude".to_string()],
+            });
+        };
+        let value = value.to_str().ok_or_else(|| {
+            Error::new(format!("{NO_SCROLLBACK_VAR} isn't valid UTF-8: {value:?}"))
+        })?;
+        Ok(NoScrollbackPrograms {
+            names: value.split_whitespace().map(str::to_string).collect(),
+        })
+    }
+
+    /// Whether the block whose terminal `process` method answered `process`
+    /// is running one of these programs, by any name the program goes by
+    /// (the name it was run by, or its executable's).
+    pub fn running_in(&self, process: &TerminalProcess) -> bool {
+        process.foreground_program().is_some_and(|program| {
+            program
+                .names()
+                .any(|name| self.names.iter().any(|listed| listed == name))
+        })
+    }
+}
 
 /// What the terminal `format` method's `extra_modes` prefix holds while the
 /// block is on the alternate screen (xterm's three ways to switch to it).
@@ -66,29 +107,22 @@ impl ScrollbackStore {
     /// snapshots still on disk), and anything a save left behind without
     /// writing its snapshot.
     pub fn remove_orphans(&self, snapshot_ids: &[String]) -> Result<()> {
-        let dir = self.state.join(DIR);
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(e).with_context(|| format!("listing {}", dir.display())),
-        };
-        for entry in entries {
-            let entry = entry.with_context(|| format!("listing {}", dir.display()))?;
+        for entry in state::read_dir_or_empty(&self.state.join(DIR))? {
             let name = entry.file_name();
-            if snapshot_ids.iter().any(|id| name == id.as_str()) {
-                continue;
+            if !snapshot_ids.iter().any(|id| name == id.as_str()) {
+                state::remove_entry(&entry.path())?;
             }
-            let path = entry.path();
-            let removed = if entry.file_type().is_ok_and(|t| t.is_dir()) {
-                std::fs::remove_dir_all(&path)
-            } else {
-                std::fs::remove_file(&path)
-            };
-            match removed {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(e).with_context(|| format!("removing {}", path.display()));
-                }
-                _ => {}
+        }
+        Ok(())
+    }
+
+    /// Removes the temporary files that crashed scrollback writes left
+    /// behind in the snapshots' directories (see
+    /// [`state::remove_stale_temp_files`]).
+    pub fn remove_stale_temp_files(&self) -> Result<()> {
+        for entry in state::read_dir_or_empty(&self.state.join(DIR))? {
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                state::remove_stale_temp_files(&entry.path(), state::is_temp_name)?;
             }
         }
         Ok(())
@@ -115,74 +149,80 @@ pub struct SnapshotScrollback {
     relative: PathBuf,
 }
 
+/// Where a block's scrollback comes from.
+#[derive(Debug)]
+pub enum ScrollbackSource {
+    /// The block's terminal, read through Rex.
+    Terminal(BlockRef),
+    /// The file restore printed in the block it just created: nothing else
+    /// can have reached its terminal yet, and the printing may not have
+    /// finished.
+    Restored { block_id: String, file: PathBuf },
+}
+
 impl SnapshotScrollback {
     /// Saves a shell block's scrollback and returns the path its saved block
     /// records. `None`, and nothing saved, for a block on the alternate
-    /// screen, a block with nothing in it, or a block ID that can't name a
-    /// file.
-    pub fn save(&self, rex: &Rex, session_id: &str, block_id: &str) -> Result<Option<PathBuf>> {
-        let plain =
-            !block_id.is_empty() && !block_id.starts_with('.') && !block_id.contains(['/', '\0']);
-        if !plain {
-            return Ok(None);
-        }
-        let modes = rex.terminal_format(
-            session_id,
-            block_id,
-            &FormatArgs {
-                format: "vt",
-                extra_modes: true,
-                ..FormatArgs::default()
-            },
-        )?;
-        if ALTERNATE_SCREEN
-            .iter()
-            .any(|mode| modes.content.contains(mode))
-        {
-            return Ok(None);
-        }
-        let mut content = rex
-            .terminal_format(
-                session_id,
+    /// screen, a block with nothing in it, a restored block whose file has
+    /// gone, or a block ID that can't name a file.
+    pub fn save(&self, rex: &Rex, source: &ScrollbackSource) -> Result<Option<PathBuf>> {
+        let (block_id, content) = match source {
+            ScrollbackSource::Terminal(block) => {
+                (&block.block_id, terminal_scrollback(rex, block)?)
+            }
+            ScrollbackSource::Restored { block_id, file } => (
                 block_id,
-                &FormatArgs {
-                    format: "vt",
-                    unwrap: true,
-                    ..FormatArgs::default()
-                },
-            )?
-            .content;
-        if content.trim().is_empty() {
+                state::read_file(file)?.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
+            ),
+        };
+        let Some(content) = content.filter(|_| state::is_plain_file_name(block_id)) else {
             return Ok(None);
-        }
-        // The last line is usually the old prompt: end it, so what's printed
-        // after the replay starts on a line of its own.
-        if !content.ends_with('\n') {
-            content.push_str("\r\n");
-        }
+        };
         let name = format!("{block_id}.vt");
         state::write_file(&self.dir.join(&name), content.as_bytes())?;
         Ok(Some(self.relative.join(name)))
     }
+}
 
-    /// Removes the scrollback saved for a session that save then leaves out
-    /// of the snapshot (an untouched session).
-    pub fn discard(&self, session: &SavedSession) -> Result<()> {
-        let blocks = session.windows.iter().flat_map(|w| w.layout.blocks());
-        for relative in blocks.filter_map(|block| block.scrollback.as_deref()) {
-            let Ok(name) = relative.strip_prefix(&self.relative) else {
-                continue;
-            };
-            let path = self.dir.join(name);
-            match std::fs::remove_file(&path) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(e).with_context(|| format!("removing {}", path.display()));
-                }
-                _ => {}
-            }
-        }
-        Ok(())
+/// A shell block's scrollback as VT, ready to replay; `None` for a block on
+/// the alternate screen or with nothing in it.
+fn terminal_scrollback(rex: &Rex, block: &BlockRef) -> Result<Option<String>> {
+    let (session_id, block_id) = (&block.session_id, &block.block_id);
+    let modes = rex.terminal_format(
+        session_id,
+        block_id,
+        &FormatArgs {
+            format: "vt",
+            extra_modes: true,
+            ..FormatArgs::default()
+        },
+    )?;
+    if ALTERNATE_SCREEN
+        .iter()
+        .any(|mode| modes.content.contains(mode))
+    {
+        return Ok(None);
     }
+    let mut content = rex
+        .terminal_format(
+            session_id,
+            block_id,
+            &FormatArgs {
+                format: "vt",
+                unwrap: true,
+                ..FormatArgs::default()
+            },
+        )?
+        .content;
+    if content.trim().is_empty() {
+        return Ok(None);
+    }
+    // The last line is usually the old prompt: end it, so what's printed
+    // after the replay starts on a line of its own.
+    if !content.ends_with('\n') {
+        content.push_str("\r\n");
+    }
+    Ok(Some(content))
 }
 
 /// How restore prints a block's saved scrollback above its new prompt.
@@ -232,14 +272,20 @@ impl Replay {
         }
     }
 
+    /// The file [`Replay::apply`] prints for `block`: its saved scrollback,
+    /// unless the block has no scrollback file (any more), or there's no
+    /// account to start the shell as.
+    pub fn file(&self, block: &SavedBlock) -> Option<PathBuf> {
+        let account = self.account.as_ref()?;
+        let file = self.store.file(block)?;
+        (file.to_str().is_some() && account.shell.to_str().is_some()).then_some(file)
+    }
+
     /// Makes `options` start the block by printing `block`'s saved
-    /// scrollback. Leaves them alone if the block has no scrollback file
-    /// (any more), or there's no account to start the shell as.
+    /// scrollback ([`Replay::file`]). Leaves them alone if there's none to
+    /// print.
     pub fn apply(&self, block: &SavedBlock, options: &mut TerminalOptions) {
-        let Some(account) = &self.account else {
-            return;
-        };
-        let Some(file) = self.store.file(block) else {
+        let (Some(account), Some(file)) = (&self.account, self.file(block)) else {
             return;
         };
         let (Some(file), Some(shell)) = (file.to_str(), account.shell.to_str()) else {

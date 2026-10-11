@@ -10,14 +10,14 @@
 //!   user's own.
 
 use std::fs;
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::{Job, Scheduler};
+use crate::account;
 use crate::error::{Context, Error, Result};
-use crate::workdir;
+use crate::settings;
+use crate::state;
 
 /// The autosave agent's label: its name in launchd and its plist's file name.
 const LABEL: &str = "io.github.cemcatik.rex-resurrect.autosave";
@@ -35,13 +35,15 @@ pub struct Launchd {
 
 impl Launchd {
     pub fn from_env() -> Result<Launchd> {
-        let agents_dir = match std::env::var_os(AGENTS_DIR_VAR).filter(|v| !v.is_empty()) {
+        let agents_dir = match settings::env_non_empty(AGENTS_DIR_VAR) {
             Some(dir) => PathBuf::from(dir),
-            None => workdir::home()?.join("Library/LaunchAgents"),
+            None => account::home()?.join("Library/LaunchAgents"),
         };
-        let label = match std::env::var(LABEL_VAR) {
-            Ok(label) if !label.is_empty() => label,
-            _ => LABEL.to_string(),
+        let label = match settings::env_non_empty(LABEL_VAR) {
+            Some(label) => label
+                .into_string()
+                .map_err(|label| Error::new(format!("{LABEL_VAR} isn't valid UTF-8: {label:?}")))?,
+            None => LABEL.to_string(),
         };
         if label.contains('/') {
             return Err(Error::new(format!(
@@ -78,13 +80,22 @@ impl Scheduler for Launchd {
         )
     }
 
+    /// A plist left in the LaunchAgents directory is loaded at every login,
+    /// so one that launchd refused to load now is removed again.
     fn install(&self, job: &Job) -> Result<()> {
         let path = self.plist_path();
         write_plist(&path, &plist(&self.label, job))?;
         if self.is_loaded()? {
             launchctl_ok(&["bootout", &self.service()])?;
         }
-        launchctl_ok(&["bootstrap", &self.domain, path_str(&path)?])
+        let loaded = launchctl_ok(&["bootstrap", &self.domain, path_str(&path)?]);
+        if let Err(e) = loaded {
+            return Err(match state::remove_if_exists(&path) {
+                Ok(_) => Error::new(format!("{e}; removed {} again", path.display())),
+                Err(removing) => Error::new(format!("{e}; and then {removing}")),
+            });
+        }
+        Ok(())
     }
 
     fn uninstall(&self) -> Result<bool> {
@@ -92,12 +103,7 @@ impl Scheduler for Launchd {
         if loaded {
             launchctl_ok(&["bootout", &self.service()])?;
         }
-        let path = self.plist_path();
-        let removed = match fs::remove_file(&path) {
-            Ok(()) => true,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-            Err(e) => return Err(e).with_context(|| format!("removing {}", path.display())),
-        };
+        let removed = state::remove_if_exists(&self.plist_path())?;
         Ok(loaded || removed)
     }
 }
@@ -157,19 +163,7 @@ fn xml_escape(s: &str) -> String {
 fn write_plist(path: &Path, contents: &str) -> Result<()> {
     let dir = path.parent().expect("the plist is in a directory");
     fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-    let temp = crate::state::temp_path(path);
-    let _ = fs::remove_file(&temp);
-    let written = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o644)
-        .open(&temp)
-        .and_then(|mut file| file.write_all(contents.as_bytes()))
-        .and_then(|()| fs::rename(&temp, path));
-    if written.is_err() {
-        let _ = fs::remove_file(&temp);
-    }
-    written.with_context(|| format!("writing {}", path.display()))
+    state::write_atomically(path, contents.as_bytes(), 0o644)
 }
 
 fn path_str(path: &Path) -> Result<&str> {
@@ -202,8 +196,6 @@ fn launchctl_ok(args: &[&str]) -> Result<()> {
 }
 
 fn current_uid() -> u32 {
-    unsafe extern "C" {
-        safe fn getuid() -> u32;
-    }
-    getuid()
+    // SAFETY: getuid can't fail and has no preconditions.
+    unsafe { libc::getuid() }
 }

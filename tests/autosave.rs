@@ -51,6 +51,12 @@ impl FakeLaunchd {
         self.dir.join("LaunchAgents")
     }
 
+    /// Makes every `bootstrap` from now on fail, the way launchd refuses a
+    /// plist it can't load.
+    fn refuse_to_load(&self) {
+        std::fs::write(self.dir.join("refuse-bootstrap"), "").unwrap();
+    }
+
     /// The plists in the LaunchAgents directory.
     fn installed(&self) -> Vec<Agent> {
         plists_in(&self.agents_dir())
@@ -88,6 +94,10 @@ case "$1" in
     echo "Could not find service \"$label\" in domain for user gui" >&2
     exit 113 ;;
   bootstrap)
+    if [ -f "$state/refuse-bootstrap" ]; then
+      echo "Bootstrap failed: 5: Input/output error" >&2
+      exit 5
+    fi
     label=$(/usr/bin/plutil -extract Label raw -o - "$3") || exit 5
     if [ -f "$state/loaded/$label.plist" ]; then
       echo "Bootstrap failed: 5: Input/output error" >&2
@@ -280,7 +290,7 @@ fn installing_twice_leaves_exactly_one_agent_running_with_the_latest_settings() 
 }
 
 #[test]
-fn a_scheduled_save_saves_the_server_and_state_install_ran_with_though_launchd_gives_neither() {
+fn an_autosave_saves_the_server_and_state_install_ran_with_though_launchd_gives_neither() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
     let server = env.start_server();
@@ -301,7 +311,7 @@ fn a_scheduled_save_saves_the_server_and_state_install_ran_with_though_launchd_g
 }
 
 #[test]
-fn installed_outside_rex_a_scheduled_save_saves_the_rex_apps_server() {
+fn installed_outside_rex_autosave_saves_the_rex_apps_server() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
     let server = env.start_server();
@@ -337,7 +347,7 @@ fn installed_outside_rex_a_scheduled_save_saves_the_rex_apps_server() {
 }
 
 #[test]
-fn a_successful_scheduled_save_is_silent() {
+fn a_successful_autosave_is_silent() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
     let server = env.start_server();
@@ -356,7 +366,7 @@ fn a_successful_scheduled_save_is_silent() {
 }
 
 #[test]
-fn a_scheduled_save_while_rex_is_not_running_logs_the_failure_and_starts_no_server() {
+fn an_autosave_while_rex_is_not_running_logs_the_failure_and_starts_no_server() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
     let endpoint = {
@@ -373,7 +383,7 @@ fn a_scheduled_save_while_rex_is_not_running_logs_the_failure_and_starts_no_serv
 
     if let Some(pid) = env.server_pid_at(&endpoint) {
         let _ = Command::new("kill").arg(pid.to_string()).status();
-        panic!("the scheduled save started a Rex server (pid {pid}) at {endpoint}");
+        panic!("the autosave started a Rex server (pid {pid}) at {endpoint}");
     }
     job.assert_failure();
     let entries = env.log_entries();
@@ -476,6 +486,25 @@ fn a_test_label_keeps_a_scratch_agent_apart_from_the_real_one() {
     assert!(launchd.loaded().is_empty());
 }
 
+/// A plist left in LaunchAgents is loaded at the next login, so an agent
+/// launchd refused to load now mustn't stay there.
+#[test]
+fn an_agent_launchd_fails_to_load_is_not_left_installed() {
+    let env = TestEnv::new();
+    let launchd = FakeLaunchd::new(&env);
+    launchd.refuse_to_load();
+
+    let out = launchd
+        .aim(env.resurrect_at(NO_SERVER))
+        .args(["autosave", "install"])
+        .run()
+        .assert_failure();
+
+    assert!(out.stderr.contains("Bootstrap failed"), "{out}");
+    assert!(launchd.installed().is_empty(), "its plist was removed");
+    assert!(launchd.loaded().is_empty());
+}
+
 #[test]
 fn install_without_rex_on_path_fails_and_installs_nothing() {
     let env = TestEnv::new();
@@ -493,7 +522,28 @@ fn install_without_rex_on_path_fails_and_installs_nothing() {
 }
 
 #[test]
-fn scheduled_saves_keep_as_many_snapshots_as_install_was_told_to() {
+fn install_hands_the_programs_whose_blocks_get_no_scrollback_on_to_autosave() {
+    let env = TestEnv::new();
+    let launchd = FakeLaunchd::new(&env);
+
+    launchd
+        .aim(env.resurrect_at(NO_SERVER))
+        .env("REX_RESURRECT_NO_SCROLLBACK", "claude aider")
+        .args(["autosave", "install"])
+        .run()
+        .assert_success();
+
+    let agent = launchd.the_agent();
+    assert!(
+        agent
+            .environment()
+            .contains(&("REX_RESURRECT_NO_SCROLLBACK", "claude aider")),
+        "{agent:?}"
+    );
+}
+
+#[test]
+fn autosaves_keep_as_many_snapshots_as_install_was_told_to() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
     let server = env.start_server();

@@ -12,7 +12,6 @@ use crate::error::{Context, Result};
 use crate::retention::Retention;
 use crate::snapshot::Snapshot;
 use crate::state::{self, StateDir};
-use crate::timestamp::Timestamp;
 
 const SNAPSHOTS_DIR: &str = "snapshots";
 const LATEST: &str = "latest.json";
@@ -30,16 +29,11 @@ impl SnapshotStore {
         }
     }
 
-    /// Writes `snapshot` as a new timestamped file, points "latest" at it,
-    /// then removes the snapshots `retention` doesn't keep. "latest" always
-    /// points at a kept one.
-    pub fn write(
-        &self,
-        snapshot: &Snapshot,
-        taken_at: Timestamp,
-        retention: Retention,
-    ) -> Result<PathBuf> {
-        let name = format!("{}.json", taken_at.compact());
+    /// Writes `snapshot` as a new file named for when it was taken, points
+    /// "latest" at it, then removes the snapshots `retention` doesn't keep.
+    /// "latest" always points at a kept one.
+    pub fn write(&self, snapshot: &Snapshot, retention: Retention) -> Result<PathBuf> {
+        let name = format!("{}.json", snapshot.taken_at.compact());
         let path = self.snapshots.join(&name);
         let json = serde_json::to_vec_pretty(snapshot).expect("snapshots serialize");
         state::write_file(&path, &json)?;
@@ -57,19 +51,10 @@ impl SnapshotStore {
 
     /// Every snapshot's identifier, newest first.
     pub fn list(&self) -> Result<Vec<String>> {
-        let entries = match std::fs::read_dir(&self.snapshots) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => {
-                return Err(e).with_context(|| format!("listing {}", self.snapshots.display()));
-            }
-        };
         let mut ids = Vec::new();
-        for entry in entries {
-            let entry = entry.with_context(|| format!("listing {}", self.snapshots.display()))?;
+        for entry in state::read_dir_or_empty(&self.snapshots)? {
             let name = entry.file_name();
-            let id = name.to_str().and_then(|name| name.strip_suffix(".json"));
-            if let Some(id) = id.filter(|id| !id.is_empty() && !id.starts_with('.')) {
+            if let Some(id) = name.to_str().and_then(snapshot_id) {
                 ids.push(id.to_string());
             }
         }
@@ -79,10 +64,16 @@ impl SnapshotStore {
 
     /// The snapshot `list` shows as `id`, or `None` if there's no such snapshot.
     pub fn read(&self, id: &str) -> Result<Option<Snapshot>> {
-        if id.is_empty() || id.starts_with('.') || id.contains('/') {
+        if !state::is_plain_file_name(id) {
             return Ok(None);
         }
         read_snapshot(&self.snapshots.join(format!("{id}.json")))
+    }
+
+    /// Removes the temporary files that crashed snapshot writes left behind
+    /// (see [`state::remove_stale_temp_files`]).
+    pub fn remove_stale_temp_files(&self) -> Result<()> {
+        state::remove_stale_temp_files(&self.snapshots, state::is_temp_name)
     }
 
     fn point_latest_at(&self, name: &str) -> Result<()> {
@@ -90,11 +81,16 @@ impl SnapshotStore {
     }
 }
 
-/// A snapshot's file name, as `list` picks them: `<timestamp>.json`, not a
-/// hidden file such as [`state::write_file`]'s temp files.
+/// The identifier of the snapshot in the file `name`, if it's a snapshot's
+/// file: `<timestamp>.json`, not a hidden file such as
+/// [`state::write_file`]'s temp files.
+fn snapshot_id(name: &str) -> Option<&str> {
+    name.strip_suffix(".json")
+        .filter(|id| state::is_plain_file_name(id))
+}
+
 fn is_snapshot_file(name: &OsStr) -> bool {
-    let name = name.to_string_lossy();
-    name.ends_with(".json") && !name.starts_with('.')
+    name.to_str().and_then(snapshot_id).is_some()
 }
 
 fn read_snapshot(path: &Path) -> Result<Option<Snapshot>> {
