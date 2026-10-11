@@ -19,7 +19,10 @@ fn restore_recreates_windows_splits_ratios_and_working_directories() {
     let editor = || hsplit(0.7, vsplit(0.35, shell(&a), shell(&spaced)), shell(&c));
     // Window 2: a different tree, so window order shows in the comparison.
     let tools = |last: &Path| vsplit(0.25, shell(&d), hsplit(0.6, shell(&e), shell(last)));
-    let fixture = server.create_session("zz-round-trip", &[window(editor()), window(tools(&f))]);
+    let fixture = server.create_session(
+        "zz-round-trip",
+        &[window(editor()).labeled("editor"), window(tools(&f))],
+    );
     server.wait_for_pwds(&fixture);
 
     // The last block moves after it started: save must read where it is now.
@@ -42,6 +45,22 @@ fn restore_recreates_windows_splits_ratios_and_working_directories() {
     assert_eq!(
         server.window_shapes(&restored[0]),
         vec![editor().expected_shape(), tools(&moved).expected_shape()],
+    );
+
+    let labels = labels(&server.view(&restored[0]));
+    assert_eq!(
+        labels[0].label, "editor",
+        "the labeled window keeps its label"
+    );
+    assert_eq!(
+        labels[1].label,
+        default_window_label(&labels[1].window_id),
+        "the unlabeled window gets a fresh default label"
+    );
+    assert_ne!(
+        labels[1].label,
+        default_window_label(&fixture.windows[1].id),
+        "not the old default label"
     );
 }
 

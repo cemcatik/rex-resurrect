@@ -15,7 +15,7 @@ pub fn create_request(saved: &SavedSession) -> CreateSession {
 
 fn create_window(window: &SavedWindow) -> CreateWindow {
     CreateWindow {
-        window_label: None,
+        window_label: window.label.clone(),
         layout: create_layout(&window.layout),
     }
 }
