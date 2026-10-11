@@ -81,5 +81,6 @@ pub fn typed_command(block: &SavedBlock) -> Option<&str> {
     block
         .last_command
         .as_deref()
+        // Any control character, tab included: typed, a tab triggers completion.
         .filter(|command| !command.is_empty() && !command.chars().any(char::is_control))
 }

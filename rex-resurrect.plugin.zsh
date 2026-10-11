@@ -76,7 +76,8 @@ _rex_resurrect_ignored() {
 
 _rex_resurrect_record() {
   emulate -L zsh
-  # $1 is the command line as typed (aliases unexpanded).
+  # $1 is the command line as typed (aliases unexpanded). Any control
+  # character disqualifies it, tab included: typed back, a tab completes.
   [[ -n $1 && $1 != *[[:cntrl:]]* && -n $REX_BLOCK ]] || return 0
   _rex_resurrect_ignored "$1" && return 0
   local dir
