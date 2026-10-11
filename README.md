@@ -7,8 +7,8 @@ rex-resurrect is a single self-contained binary. It talks to Rex only through th
 needs nothing else at runtime.
 
 > **Status:** early. `save` and `restore` bring back each session's label, its windows in order,
-> each window's split layout and ratios, and each block's working directory. Window and block
-> labels, last commands, autosave and auto-restore are coming.
+> each window's split layout and ratios, window and block labels you set, and each block's
+> working directory. Last commands, autosave and auto-restore are coming.
 
 ## Install
 
@@ -26,15 +26,33 @@ The `rex` CLI that ships with Rex must be on your `PATH` too (it is inside Rex b
 ```sh
 rex-resurrect save      # snapshot every session on the Rex server
 rex-resurrect restore   # recreate the latest snapshot's sessions that aren't live
+rex-resurrect list      # list the snapshots, newest first
 ```
 
 - **`save`** records every session: its label, its windows in order, each window's tiled split
-  layout (directions and ratios) and each block's working directory. Each save is a new
+  layout (directions and ratios) and each block's working directory. Window and block labels
+  are recorded only if you set them; windows and blocks with Rex's default labels get fresh
+  default labels on restore, not stale copies like `Window 1a2b3c4d`. Each save is a new
   timestamped snapshot; `latest.json` points at the newest.
 - **`restore`** recreates each saved session from the latest snapshot, unless that session is
   already live, and prints what it `created`, `skipped` and why anything `failed`. One session
   failing doesn't stop the others; `restore` exits non-zero if any failed. Running it twice
-  creates no duplicates.
+  creates no duplicates. Options, which combine:
+  - `--snapshot <id>` restores from an older snapshot, using an ID from `list`;
+  - `--session <label>` restores only the saved sessions with that label (all of them, if
+    several share it), and fails if the snapshot has none;
+  - `--dry-run` (`-n`) prints what would be created and skipped, and creates nothing.
+- **`list`** shows each snapshot's ID, when it was taken (UTC) and its session labels, newest
+  first.
+
+Whatever the snapshot, restore skips a saved session that's still live, even if it has changed
+since, so restoring an older snapshot never brings back an old version of a session you still
+have. Kill the live one first if that's what you want.
+
+A block that can't come back as it was still comes back as a shell, so the layout around it
+stays intact. A block whose directory no longer exists opens in your home directory. A
+non-terminal block, a block on another host, and a window whose blocks have all floated come
+back as a plain shell in your home directory. Floating blocks aren't saved.
 
 Restore recognises sessions by where they came from, not by label: two saved sessions with the
 same label both come back, a restored session you rename still counts as live, and a session
