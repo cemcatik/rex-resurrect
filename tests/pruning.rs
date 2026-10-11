@@ -11,6 +11,7 @@ mod common;
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use common::*;
 
@@ -176,6 +177,49 @@ fn a_save_removes_lineage_entries_for_sessions_that_are_not_live_and_keeps_the_o
     let again = env.restore(&server);
     assert!(again.lines_starting("created").is_empty(), "{again}");
     assert_eq!(again.lines_starting("skipped").len(), 1, "{again}");
+}
+
+/// A write that crashed between writing its temporary file and renaming it
+/// over the real one leaves the temporary file behind. A save removes those
+/// once they're clearly stale (over an hour old); a fresh one may belong to
+/// a write still going on.
+#[test]
+fn a_save_removes_temporary_files_left_by_crashed_writes_once_they_are_stale() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    session_with_one_block(&env, &server, "zz-live");
+    env.save(&server);
+    // A recorder's temporary files (named `.…` by the recorder-file
+    // contract; the zsh recorder's are `.<block ID>.<pid>`), and the ones
+    // rex-resurrect writes its own files through (`.<name>.<pid>.tmp`, next
+    // to the file).
+    let temporary = |name: &str| {
+        [
+            recorder_file(&env, &format!(".block:zz-{name}.4242")),
+            env.state_dir()
+                .join(format!("snapshots/.zz-{name}.json.4242.tmp")),
+            env.state_dir().join(format!(".zz-{name}.json.4242.tmp")),
+        ]
+    };
+    let (stale, fresh) = (temporary("stale"), temporary("fresh"));
+    for path in stale.iter().chain(&fresh) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "half written").unwrap();
+    }
+    let two_hours_ago = SystemTime::now() - Duration::from_secs(2 * 60 * 60);
+    for path in &stale {
+        let file = std::fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(two_hours_ago).unwrap();
+    }
+
+    env.save(&server);
+
+    for path in &stale {
+        assert!(!path.exists(), "{} is left behind", path.display());
+    }
+    for path in &fresh {
+        assert!(path.exists(), "{} was removed", path.display());
+    }
 }
 
 #[test]

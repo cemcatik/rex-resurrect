@@ -151,6 +151,12 @@ fn save_snapshot(
             path.display()
         )
     })?;
+    upkeep::remove_stale_temp_files(state).with_context(|| {
+        format!(
+            "saved {}, but then failed to remove temporary files that crashed writes left behind",
+            path.display()
+        )
+    })?;
     Ok(Saved::Snapshot {
         path,
         sessions: snapshot.sessions.len(),

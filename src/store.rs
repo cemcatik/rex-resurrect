@@ -85,6 +85,12 @@ impl SnapshotStore {
         read_snapshot(&self.snapshots.join(format!("{id}.json")))
     }
 
+    /// Removes the temporary files that crashed snapshot writes left behind
+    /// (see [`state::remove_stale_temp_files`]).
+    pub fn remove_stale_temp_files(&self) -> Result<()> {
+        state::remove_stale_temp_files(&self.snapshots, state::is_temp_name)
+    }
+
     fn point_latest_at(&self, name: &str) -> Result<()> {
         state::write_symlink(&self.latest, &PathBuf::from(SNAPSHOTS_DIR).join(name))
     }

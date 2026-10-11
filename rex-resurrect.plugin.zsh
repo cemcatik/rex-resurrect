@@ -54,6 +54,8 @@
 #   one: they only record commands.
 # - Written to a temporary file in the same directory whose name starts with
 #   `.`, then renamed over the record, so a reader never sees half a command.
+#   A save removes such a file once it has gone unchanged for an hour (left
+#   behind by a recorder that crashed).
 # - The recorder directory is private (0700): commands can hold secrets.
 
 # The ignore list's defaults: commands that only look or move around, or

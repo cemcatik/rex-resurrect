@@ -13,6 +13,7 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use crate::error::{Context, Error, Result};
 
@@ -115,6 +116,51 @@ pub fn temp_path(path: &Path) -> PathBuf {
         .expect("state files have a file name")
         .to_string_lossy();
     path.with_file_name(format!(".{name}.{}.tmp", std::process::id()))
+}
+
+/// Whether `name` is one of [`temp_path`]'s: `.<name>.<pid>.tmp`.
+pub fn is_temp_name(name: &str) -> bool {
+    name.strip_prefix('.')
+        .and_then(|name| name.strip_suffix(".tmp"))
+        .and_then(|name| name.rsplit_once('.'))
+        .is_some_and(|(file, pid)| {
+            !file.is_empty() && !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit())
+        })
+}
+
+/// How long a temporary file goes unchanged before it counts as left
+/// behind by a write that crashed: far longer than any write takes.
+const STALE_AFTER: Duration = Duration::from_secs(60 * 60);
+
+/// Removes the temporary files in `dir` (the names `is_temp` picks) that
+/// haven't changed for over an hour: what writes that crashed before their
+/// rename left behind. Fresher ones may belong to writes still going on.
+pub fn remove_stale_temp_files(dir: &Path, is_temp: impl Fn(&str) -> bool) -> Result<()> {
+    let listing = || format!("listing {}", dir.display());
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e).with_context(listing),
+    };
+    let stale_before = SystemTime::now() - STALE_AFTER;
+    for entry in entries {
+        let entry = entry.with_context(listing)?;
+        if !entry.file_name().to_str().is_some_and(&is_temp) {
+            continue;
+        }
+        // Not following symlinks: a temporary symlink is stale by its own age.
+        let metadata = entry.metadata().with_context(listing)?;
+        if metadata.is_dir() || metadata.modified().with_context(listing)? >= stale_before {
+            continue;
+        }
+        match fs::remove_file(entry.path()) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(e).with_context(|| format!("removing {}", entry.path().display()));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 fn write_new_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {

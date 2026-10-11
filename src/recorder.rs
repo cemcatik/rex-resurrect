@@ -16,7 +16,9 @@
 //!   recorder was installed. Recorders never write one: they only record
 //!   commands;
 //! - written to a temporary file whose name starts with `.` in the same
-//!   directory, then renamed over the record;
+//!   directory, then renamed over the record. Such a file left unchanged
+//!   for over an hour counts as left behind by a recorder that crashed, and
+//!   a save removes it;
 //! - the directory is private (0700): commands can hold secrets.
 //!
 //! Recorders only record single-line commands, but restore doesn't rely on
@@ -121,6 +123,13 @@ impl RecorderFiles {
             }
         }
         Ok(())
+    }
+
+    /// Removes the temporary files (named `.…`) that recorders crashed
+    /// before renaming over a record (see
+    /// [`state::remove_stale_temp_files`]).
+    pub fn remove_stale_temp_files(&self) -> Result<()> {
+        state::remove_stale_temp_files(&self.dir, |name| name.starts_with('.'))
     }
 
     /// The block's recorder file. `None` for an ID that isn't a plain file

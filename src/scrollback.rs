@@ -135,6 +135,25 @@ impl ScrollbackStore {
         Ok(())
     }
 
+    /// Removes the temporary files that crashed scrollback writes left
+    /// behind in the snapshots' directories (see
+    /// [`state::remove_stale_temp_files`]).
+    pub fn remove_stale_temp_files(&self) -> Result<()> {
+        let dir = self.state.join(DIR);
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e).with_context(|| format!("listing {}", dir.display())),
+        };
+        for entry in entries {
+            let entry = entry.with_context(|| format!("listing {}", dir.display()))?;
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                state::remove_stale_temp_files(&entry.path(), state::is_temp_name)?;
+            }
+        }
+        Ok(())
+    }
+
     /// The file holding a saved block's scrollback, if it has one and the
     /// file is still there. A recorded path that would reach outside the
     /// state directory counts as none.
