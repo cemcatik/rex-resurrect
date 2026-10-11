@@ -43,6 +43,7 @@ pub struct ServerBuilder<'a> {
     args: Vec<OsString>,
     extra_env: Vec<(OsString, OsString)>,
     path_prepend: Vec<PathBuf>,
+    holding_open: Option<PathBuf>,
 }
 
 impl<'a> ServerBuilder<'a> {
@@ -54,6 +55,7 @@ impl<'a> ServerBuilder<'a> {
             args: Vec::new(),
             extra_env: Vec::new(),
             path_prepend: Vec::new(),
+            holding_open: None,
         }
     }
 
@@ -83,7 +85,24 @@ impl<'a> ServerBuilder<'a> {
         self
     }
 
+    /// Starts the server with `path` open (for appending) on file
+    /// descriptor 9, without close-on-exec, the way `rex server start` hands
+    /// the server its start lock. Whatever init.lua starts inherits it too.
+    pub fn holding_open(mut self, path: impl Into<PathBuf>) -> Self {
+        self.holding_open = Some(path.into());
+        self
+    }
+
+    /// Starts the server and waits until it's ready.
     pub fn start(self) -> Server {
+        let mut server = self.start_without_waiting();
+        server.wait_until_ready();
+        server
+    }
+
+    /// Starts the server without waiting for it to be ready, e.g. one whose
+    /// init.lua takes its time. [`Server::wait_until_ready`] waits.
+    pub fn start_without_waiting(self) -> Server {
         std::fs::create_dir_all(self.dir.join("state")).unwrap();
         let config = self.dir.join("init.lua");
         std::fs::write(&config, &self.init_lua).unwrap();
@@ -100,9 +119,18 @@ impl<'a> ServerBuilder<'a> {
         env.extend(self.extra_env);
         prepend_path(&mut env, &self.path_prepend);
 
-        let log_path = self.dir.join("server.log");
-        let log = File::create(&log_path).unwrap();
-        let child = Command::new(rex_bin())
+        let log = File::create(self.dir.join("server.log")).unwrap();
+        let mut command = match &self.holding_open {
+            None => Command::new(rex_bin()),
+            Some(path) => {
+                let mut sh = Command::new("/bin/sh");
+                sh.args(["-c", r#"exec 9>>"$0" && exec "$@""#])
+                    .arg(path)
+                    .arg(rex_bin());
+                sh
+            }
+        };
+        let child = command
             .args(["server", "run", "--listen", &endpoint])
             .arg("--state-dir")
             .arg(self.dir.join("state"))
@@ -118,15 +146,13 @@ impl<'a> ServerBuilder<'a> {
             .spawn()
             .expect("starting rex server run");
 
-        let mut server = Server {
+        Server {
             dir: self.dir,
             endpoint,
             child,
             client_env: env,
             _root: self.env.root_handle(),
-        };
-        server.wait_until_ready(&log_path);
-        server
+        }
     }
 }
 
@@ -434,7 +460,10 @@ impl Server {
             .collect()
     }
 
-    fn wait_until_ready(&mut self, log_path: &Path) {
+    /// Waits until the server answers `server.status`; panics if it exits
+    /// or isn't ready within [`WAIT`].
+    pub fn wait_until_ready(&mut self) {
+        let log_path = self.dir.join("server.log");
         let deadline = Instant::now() + WAIT;
         loop {
             let ready = self
@@ -451,13 +480,13 @@ impl Server {
             if let Some(status) = self.child.try_wait().unwrap() {
                 panic!(
                     "throwaway rex server exited early ({status}); log:\n{}",
-                    std::fs::read_to_string(log_path).unwrap_or_default()
+                    std::fs::read_to_string(&log_path).unwrap_or_default()
                 );
             }
             if Instant::now() > deadline {
                 panic!(
                     "throwaway rex server not ready after {WAIT:?}; log:\n{}",
-                    std::fs::read_to_string(log_path).unwrap_or_default()
+                    std::fs::read_to_string(&log_path).unwrap_or_default()
                 );
             }
             std::thread::sleep(Duration::from_millis(50));
