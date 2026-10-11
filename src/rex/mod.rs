@@ -20,7 +20,10 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use api::{CreateSession, CreatedSession, SessionList, SessionSummary, SessionView, TerminalProcess, TerminalPwd};
+use api::{
+    CreateSession, CreatedSession, SessionList, SessionSummary, SessionView, TerminalProcess,
+    TerminalPwd,
+};
 
 /// A handle on one Rex server, reached through the `rex` CLI on `PATH`.
 #[derive(Debug, Clone)]
@@ -33,12 +36,19 @@ pub struct Rex {
 #[derive(Debug)]
 pub enum RexError {
     /// `rex` couldn't be run at all (not on `PATH`, ...).
-    Spawn { method: String, error: std::io::Error },
+    Spawn {
+        method: String,
+        error: std::io::Error,
+    },
     /// No server at the endpoint (`rex` exit status 4). Autostart is off, so
     /// this is the normal answer while the Rex server is down.
     NotRunning { method: String, message: String },
     /// `rex` ran and reported an error (bad request, not found, timeout, ...).
-    Failed { method: String, status: Option<i32>, message: String },
+    Failed {
+        method: String,
+        status: Option<i32>,
+        message: String,
+    },
     /// `rex` succeeded but its output isn't the shape rex-resurrect expects.
     UnexpectedOutput { method: String, detail: String },
 }
@@ -50,14 +60,24 @@ impl fmt::Display for RexError {
                 write!(f, "couldn't run `rex api call {method}`: {error}")
             }
             RexError::NotRunning { method, message } => {
-                write!(f, "rex api call {method}: the Rex server isn't running: {message}")
+                write!(
+                    f,
+                    "rex api call {method}: the Rex server isn't running: {message}"
+                )
             }
-            RexError::Failed { method, status, message } => {
+            RexError::Failed {
+                method,
+                status,
+                message,
+            } => {
                 let status = status.map_or("signal".to_string(), |s| s.to_string());
                 write!(f, "rex api call {method} failed (exit {status}): {message}")
             }
             RexError::UnexpectedOutput { method, detail } => {
-                write!(f, "rex api call {method} returned unexpected output: {detail}")
+                write!(
+                    f,
+                    "rex api call {method} returned unexpected output: {detail}"
+                )
             }
         }
     }
@@ -75,7 +95,11 @@ impl Rex {
     }
 
     /// Calls a raw API method and parses its result.
-    pub fn call<T: DeserializeOwned>(&self, method: &str, args: &impl Serialize) -> Result<T, RexError> {
+    pub fn call<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        args: &impl Serialize,
+    ) -> Result<T, RexError> {
         let input = serde_json::to_vec(args).expect("API arguments serialize to JSON");
         let mut cmd = Command::new(&self.program);
         if let Some(server) = &self.server {
@@ -97,7 +121,8 @@ impl Rex {
         drop(stdin);
         let out = child.wait_with_output().map_err(spawn_error)?;
         if !out.status.success() {
-            let message = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let message = stderr.trim().trim_start_matches("Error: ").to_string();
             return Err(match out.status.code() {
                 Some(4) => RexError::NotRunning {
                     method: method.to_string(),
@@ -136,7 +161,11 @@ impl Rex {
     }
 
     /// The terminal `process` method: the block's foreground process and its ancestors.
-    pub fn terminal_process(&self, session_id: &str, block_id: &str) -> Result<TerminalProcess, RexError> {
+    pub fn terminal_process(
+        &self,
+        session_id: &str,
+        block_id: &str,
+    ) -> Result<TerminalProcess, RexError> {
         self.block_method(session_id, block_id, "process", json!({}))
     }
 

@@ -29,7 +29,9 @@ pub fn working_directory(rex: &Rex, session_id: &str, block_id: &str) -> Result<
 fn path_from_file_url(url: &str) -> Option<PathBuf> {
     let rest = url.strip_prefix("file://")?;
     let path = &rest[rest.find('/')?..];
-    Some(PathBuf::from(OsString::from_vec(percent_decode(path.as_bytes()))))
+    Some(PathBuf::from(OsString::from_vec(percent_decode(
+        path.as_bytes(),
+    ))))
 }
 
 fn percent_decode(bytes: &[u8]) -> Vec<u8> {
@@ -37,12 +39,13 @@ fn percent_decode(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                out.push(hi << 4 | lo);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2]))
+        {
+            out.push(hi << 4 | lo);
+            i += 3;
+            continue;
         }
         out.push(bytes[i]);
         i += 1;

@@ -22,13 +22,19 @@ impl Timestamp {
     /// `2026-10-11T07:04:49.856123Z`
     pub fn rfc3339(&self) -> String {
         let (y, mo, d, h, mi, s) = self.civil();
-        format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{:06}Z", self.micros)
+        format!(
+            "{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{:06}Z",
+            self.micros
+        )
     }
 
     /// `20261011T070449.856123Z`: safe in file names, sorts in time order.
     pub fn compact(&self) -> String {
         let (y, mo, d, h, mi, s) = self.civil();
-        format!("{y:04}{mo:02}{d:02}T{h:02}{mi:02}{s:02}.{:06}Z", self.micros)
+        format!(
+            "{y:04}{mo:02}{d:02}T{h:02}{mi:02}{s:02}.{:06}Z",
+            self.micros
+        )
     }
 
     fn civil(&self) -> (i64, u32, u32, u64, u64, u64) {

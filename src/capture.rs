@@ -23,7 +23,11 @@ pub fn saved_session(rex: &Rex, view: &SessionView, lineage: Lineage) -> Result<
 
 /// A window's tiled layout. `None` for a window with nothing tiled (every
 /// block floated). Floating layers aren't saved.
-fn saved_window(rex: &Rex, session: &SessionView, window: &WindowView) -> Result<Option<SavedWindow>> {
+fn saved_window(
+    rex: &Rex,
+    session: &SessionView,
+    window: &WindowView,
+) -> Result<Option<SavedWindow>> {
     let tiled = window.tiled_layer().ok_or_else(|| {
         Error::new(format!(
             "session.view: window {} has no tiled layer",
@@ -38,7 +42,12 @@ fn saved_window(rex: &Rex, session: &SessionView, window: &WindowView) -> Result
     }))
 }
 
-fn saved_layout(rex: &Rex, session: &SessionView, layer: &LayerView, node: &LayoutView) -> Result<SavedLayout> {
+fn saved_layout(
+    rex: &Rex,
+    session: &SessionView,
+    layer: &LayerView,
+    node: &LayoutView,
+) -> Result<SavedLayout> {
     match node {
         LayoutView::Block { block_id } => {
             let block = layer.block(block_id).ok_or_else(|| {

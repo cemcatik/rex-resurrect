@@ -23,7 +23,11 @@ pub struct Saved {
 
 pub fn run(options: &SaveOptions) -> Result<ExitCode> {
     let saved = save(&Rex::from_env(), &StateDir::from_env()?, options)?;
-    println!("saved {} session(s) to {}", saved.sessions, saved.path.display());
+    println!(
+        "saved {} session(s) to {}",
+        saved.sessions,
+        saved.path.display()
+    );
     Ok(ExitCode::SUCCESS)
 }
 

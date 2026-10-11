@@ -33,15 +33,10 @@ impl From<crate::rex::RexError> for Error {
 
 /// Adds "what we were doing" to any displayable error.
 pub trait Context<T> {
-    fn context(self, what: impl fmt::Display) -> Result<T>;
     fn with_context<D: fmt::Display>(self, what: impl FnOnce() -> D) -> Result<T>;
 }
 
 impl<T, E: fmt::Display> Context<T> for std::result::Result<T, E> {
-    fn context(self, what: impl fmt::Display) -> Result<T> {
-        self.map_err(|e| Error::new(format!("{what}: {e}")))
-    }
-
     fn with_context<D: fmt::Display>(self, what: impl FnOnce() -> D) -> Result<T> {
         self.map_err(|e| Error::new(format!("{}: {e}", what())))
     }

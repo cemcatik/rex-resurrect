@@ -32,10 +32,6 @@ impl StateDir {
             })
     }
 
-    pub fn path(&self) -> &Path {
-        &self.root
-    }
-
     /// A path inside the state directory.
     pub fn join(&self, name: impl AsRef<Path>) -> PathBuf {
         self.root.join(name)
@@ -50,7 +46,10 @@ fn resolve(
     if let Some(dir) = override_dir {
         return Some(PathBuf::from(dir));
     }
-    if let Some(xdg) = xdg_state_home.map(PathBuf::from).filter(|p| p.is_absolute()) {
+    if let Some(xdg) = xdg_state_home
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+    {
         return Some(xdg.join("rex-resurrect"));
     }
     home.map(|home| PathBuf::from(home).join(".local/state/rex-resurrect"))

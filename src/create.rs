@@ -1,7 +1,8 @@
 //! Turning a saved session into a `session.create` request.
 
 use crate::rex::api::{
-    CreateBlock, CreateLayout, CreateSession, CreateSplit, CreateWindow, SHELL_FLAVOR, TerminalOptions,
+    CreateBlock, CreateLayout, CreateSession, CreateSplit, CreateWindow, SHELL_FLAVOR,
+    TerminalOptions,
 };
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedWindow};
 

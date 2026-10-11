@@ -100,7 +100,10 @@ impl Args {
     }
 
     fn wants_help(&self) -> bool {
-        self.rest.as_slice().iter().any(|a| a == "-h" || a == "--help")
+        self.rest
+            .as_slice()
+            .iter()
+            .any(|a| a == "-h" || a == "--help")
     }
 
     fn next(&mut self) -> Option<String> {

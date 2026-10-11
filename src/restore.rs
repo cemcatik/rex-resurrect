@@ -17,10 +17,19 @@ pub struct RestoreOptions {}
 /// What happened to one saved session.
 #[derive(Debug)]
 pub enum Outcome {
-    Created { label: String, session_id: String },
+    Created {
+        label: String,
+        session_id: String,
+    },
     /// A session of its lineage is already live.
-    Skipped { label: String, live_session_id: String },
-    Failed { label: String, error: String },
+    Skipped {
+        label: String,
+        live_session_id: String,
+    },
+    Failed {
+        label: String,
+        error: String,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -108,7 +117,10 @@ pub fn restore(rex: &Rex, state: &StateDir, _options: &RestoreOptions) -> Result
             Ok(created) => {
                 lineages.record(&created.session_id, saved.lineage.clone());
                 lineages.save().with_context(|| {
-                    format!("recording the lineage of restored session {}", created.session_id)
+                    format!(
+                        "recording the lineage of restored session {}",
+                        created.session_id
+                    )
                 })?;
                 live.insert(saved.lineage.clone(), created.session_id.clone());
                 report.outcomes.push(Outcome::Created {

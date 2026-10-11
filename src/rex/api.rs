@@ -73,7 +73,9 @@ pub struct WindowView {
 impl WindowView {
     /// The window's tiled layer: its layout. Floating layers aren't part of it.
     pub fn tiled_layer(&self) -> Option<&LayerView> {
-        self.layers.iter().find(|layer| layer.kind == LayerKind::Tiled)
+        self.layers
+            .iter()
+            .find(|layer| layer.kind == LayerKind::Tiled)
     }
 }
 
@@ -137,7 +139,10 @@ impl<'de> Deserialize<'de> for LayoutView {
                 block_id: None,
                 split: Some(split),
             } => Ok(LayoutView::Split(split)),
-            Node { block_id: None, split: None } => Err(serde::de::Error::custom(
+            Node {
+                block_id: None,
+                split: None,
+            } => Err(serde::de::Error::custom(
                 "layout node has neither `block_id` nor `split`",
             )),
             Node { .. } => Err(serde::de::Error::custom(
