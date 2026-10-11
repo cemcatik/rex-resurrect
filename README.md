@@ -49,6 +49,11 @@ Whatever the snapshot, restore skips a saved session that's still live, even if 
 since, so restoring an older snapshot never brings back an old version of a session you still
 have. Kill the live one first if that's what you want.
 
+A block that can't come back as it was still comes back as a shell, so the layout around it
+stays intact. A block whose directory no longer exists opens in your home directory. A
+non-terminal block, a block on another host, and a window whose blocks have all floated come
+back as a plain shell in your home directory. Floating blocks aren't saved.
+
 Restore recognises sessions by where they came from, not by label: two saved sessions with the
 same label both come back, a restored session you rename still counts as live, and a session
 you created by hand under a saved label doesn't (see
