@@ -38,6 +38,11 @@ rex-resurrect restore   # recreate the latest snapshot's sessions that aren't li
   failing doesn't stop the others; `restore` exits non-zero if any failed. Running it twice
   creates no duplicates.
 
+A block that can't come back as it was still comes back as a shell, so the layout around it
+stays intact. A block whose directory no longer exists opens in your home directory. A
+non-terminal block, a block on another host, and a window whose blocks have all floated come
+back as a plain shell in your home directory. Floating blocks aren't saved.
+
 Restore recognises sessions by where they came from, not by label: two saved sessions with the
 same label both come back, a restored session you rename still counts as live, and a session
 you created by hand under a saved label doesn't (see
