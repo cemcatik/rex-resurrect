@@ -162,3 +162,73 @@ fn an_ignored_command_leaves_the_previous_last_command_in_place() {
 
     assert_restored_with_typed(&env, &server, "zz-ignored", &[&meaningful]);
 }
+
+#[test]
+fn a_command_line_joining_an_ignored_command_to_another_is_recorded() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    env.mkdir("a/sub");
+    let fixture = server.create_session("zz-joined", &[window(shell(&a))]);
+    server.wait_for_pwds(&fixture);
+    let joined = format!("cd sub && touch {}", a.join("joined").display());
+    server.run(&fixture.id, fixture.block_ids()[0], &joined);
+    wait_for_file(&a.join("joined"));
+
+    assert_restored_with_typed(&env, &server, "zz-joined", &[&joined]);
+}
+
+/// Runs `commands` in order in a new session's one block, waiting for each
+/// to show it ran: a touched file, or `echo`'s and `ls`'s output (a file
+/// `zz-listed` sits in the block's directory for `ls`).
+fn run_in_one_block(env: &TestEnv, server: &Server, label: &str, commands: &[&str]) {
+    let a = env.mkdir("a");
+    std::fs::write(a.join("zz-listed"), "").unwrap();
+    let fixture = server.create_session(label, &[window(shell(&a))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    for command in commands {
+        server.run(&fixture.id, block, command);
+        if let Some(path) = command.strip_prefix("touch ") {
+            wait_for_file(Path::new(path));
+        } else if let Some(text) = command.strip_prefix("echo ") {
+            server.wait_for_capture(&fixture.id, block, text, |c| {
+                c.contains(&format!("\n{text}"))
+            });
+        } else {
+            server.wait_for_capture(&fixture.id, block, "the ls output", |c| {
+                c.contains("\nzz-listed")
+            });
+        }
+    }
+}
+
+#[test]
+fn users_can_extend_the_ignore_list_from_their_zsh_config() {
+    let plugin = common::zsh::quote(&common::zsh::recorder_plugin());
+    let env = TestEnv::builder()
+        .zshrc_line(format!("source {plugin}"))
+        .zshrc_line("REX_RESURRECT_IGNORE+=(echo)")
+        .build();
+    let server = env.start_server();
+    let touch = format!("touch {}", env.root().join("zz-touched").display());
+    // `ls` is still ignored by default, and `echo` now is too.
+    run_in_one_block(&env, &server, "zz-extend", &[&touch, "ls", "echo zz-extended"]);
+
+    assert_restored_with_typed(&env, &server, "zz-extend", &[&touch]);
+}
+
+#[test]
+fn users_can_replace_the_ignore_list_from_their_zsh_config() {
+    let plugin = common::zsh::quote(&common::zsh::recorder_plugin());
+    let env = TestEnv::builder()
+        .zshrc_line("REX_RESURRECT_IGNORE=(echo)")
+        .zshrc_line(format!("source {plugin}"))
+        .build();
+    let server = env.start_server();
+    let touch = format!("touch {}", env.root().join("zz-touched").display());
+    // `ls` is no longer ignored; `echo` is.
+    run_in_one_block(&env, &server, "zz-replace", &[&touch, "ls", "echo zz-replaced"]);
+
+    assert_restored_with_typed(&env, &server, "zz-replace", &["ls"]);
+}
