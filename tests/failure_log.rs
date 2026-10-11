@@ -4,6 +4,9 @@
 
 mod common;
 
+use std::os::unix::fs::PermissionsExt;
+
+use common::files::accessible_to_others;
 use common::*;
 use serde_json::json;
 
@@ -124,6 +127,48 @@ fn a_session_that_fails_to_restore_when_save_restores_first_is_logged() {
     let (_, message) = timestamp_and_message(&entries[0]);
     assert!(message.starts_with("save"), "{message}");
     assert!(message.contains("zz-wide"), "{message}");
+}
+
+/// While Rex is quit, every autosave fails and logs it, so the log would
+/// grow forever. Once it passes about a megabyte, only its newest half is
+/// kept, still readable by the user only.
+#[test]
+fn the_log_keeps_only_its_newest_entries_once_it_passes_a_megabyte() {
+    let env = TestEnv::new();
+    let endpoint = {
+        let server = env.start_server();
+        server.endpoint().to_string()
+    }; // Rex quits.
+    // A log that has been growing for a long time.
+    let log = env.state_dir().join("rex-resurrect.log");
+    let filler = "x".repeat(40);
+    let old: String = (0..20_000)
+        .map(|i| format!("2026-01-01T00:00:00.000000Z save failed: zz-old-{i:05} {filler}\n"))
+        .collect();
+    assert!(old.len() > 1_100_000);
+    std::fs::write(&log, &old).unwrap();
+    std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    env.resurrect_at(&endpoint)
+        .arg("save")
+        .run()
+        .assert_failure();
+
+    let size = std::fs::metadata(&log).unwrap().len();
+    assert!(size < 1_000_000, "the log is still {size} bytes");
+    let entries = env.log_entries();
+    for entry in &entries {
+        timestamp_and_message(entry);
+    }
+    let newest = entries.last().unwrap();
+    assert!(newest.contains("isn't running"), "{newest}");
+    assert!(
+        entries[0].contains("zz-old-1"),
+        "the oldest are gone: {}",
+        entries[0]
+    );
+    assert!(entries.iter().any(|e| e.contains("zz-old-19999")));
+    assert_eq!(accessible_to_others(&log), Vec::<String>::new());
 }
 
 #[test]

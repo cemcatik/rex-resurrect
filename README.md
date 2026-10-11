@@ -198,7 +198,8 @@ say so.
 Every failure of `save` or `restore`, including each session that fails to restore, is also
 appended to `rex-resurrect.log` in the state directory, one line per failure starting with a
 UTC timestamp. Successful runs write nothing there, except auto-restore, which logs every
-outcome (see [Auto-restore](#auto-restore)).
+outcome (see [Auto-restore](#auto-restore)). Once the log passes 1 MB (an autosave failing
+every 15 minutes while Rex is quit gets it there in a few months), it keeps only its newest half.
 
 ### Which server
 

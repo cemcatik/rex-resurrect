@@ -12,10 +12,13 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Context, Result};
-use crate::state::StateDir;
+use crate::state::{self, StateDir};
 use crate::timestamp::Timestamp;
 
 const LOG: &str = "rex-resurrect.log";
+/// The size past which the log keeps only its newest half. While Rex is
+/// quit, every autosave appends a line, so it would otherwise grow forever.
+const MAX_SIZE: u64 = 1 << 20;
 
 #[derive(Debug)]
 pub struct Log {
@@ -37,7 +40,8 @@ impl Log {
 
     /// Appends `<UTC timestamp> <message>` as one line: line breaks in
     /// `message` become `; `. Creates the log (`0600`) and the state
-    /// directory (private) if needed.
+    /// directory (private) if needed. A log that has grown past a megabyte
+    /// keeps only its newest half.
     pub fn append(&self, message: &str) -> Result<()> {
         self.state.make_private()?;
         let message: Vec<&str> = message
@@ -46,13 +50,36 @@ impl Log {
             .filter(|l| !l.is_empty())
             .collect();
         let entry = format!("{} {}\n", Timestamp::now().rfc3339(), message.join("; "));
-        OpenOptions::new()
+        let size = OpenOptions::new()
             .append(true)
             .create(true)
             .mode(0o600)
             .open(&self.path)
-            .and_then(|mut log| log.write_all(entry.as_bytes()))
-            .with_context(|| format!("appending to {}", self.path.display()))
+            .and_then(|mut log| {
+                log.write_all(entry.as_bytes())?;
+                Ok(log.metadata()?.len())
+            })
+            .with_context(|| format!("appending to {}", self.path.display()))?;
+        if size > MAX_SIZE {
+            self.keep_newest_half()?;
+        }
+        Ok(())
+    }
+
+    /// Rewrites the log with only its newest half, starting at a whole
+    /// line. Atomically, and private, like any other state file. An entry
+    /// another run appends while this rewrites is lost; that takes two runs
+    /// at once on a log just past its limit.
+    fn keep_newest_half(&self) -> Result<()> {
+        let Some(log) = state::read_file(&self.path)? else {
+            return Ok(());
+        };
+        let half = log.len() - log.len() / 2;
+        let start = log[half..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(log.len(), |newline| half + newline + 1);
+        state::write_file(&self.path, &log[start..])
     }
 }
 
