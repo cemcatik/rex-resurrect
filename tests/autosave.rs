@@ -441,3 +441,42 @@ fn an_interval_that_is_not_a_whole_number_of_minutes_installs_nothing() {
     assert!(launchd.installed().is_empty());
     assert!(launchd.loaded().is_empty());
 }
+
+#[test]
+fn install_without_rex_on_path_fails_and_installs_nothing() {
+    let env = TestEnv::new();
+    let launchd = FakeLaunchd::new(&env);
+
+    let out = launchd
+        .aim(env.resurrect_at(NO_SERVER).env("PATH", "/usr/bin:/bin"))
+        .args(["autosave", "install"])
+        .run()
+        .assert_failure();
+
+    assert!(out.stderr.contains("`rex`"), "{out}");
+    assert!(launchd.installed().is_empty());
+    assert!(launchd.loaded().is_empty());
+}
+
+#[test]
+fn scheduled_saves_keep_as_many_snapshots_as_install_was_told_to() {
+    let env = TestEnv::new();
+    let launchd = FakeLaunchd::new(&env);
+    let server = env.start_server();
+    let fixture = server.create_session("zz-kept", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    launchd
+        .aim(env.resurrect(&server))
+        .env("REX_RESURRECT_KEEP", "2")
+        .args(["autosave", "install"])
+        .run()
+        .assert_success();
+    let agent = launchd.the_agent();
+
+    for _ in 0..3 {
+        agent.run_as_launchd(&env).assert_success();
+    }
+
+    let list = env.resurrect(&server).arg("list").run().assert_success();
+    assert_eq!(list.stdout.lines().count(), 2, "{list}");
+}

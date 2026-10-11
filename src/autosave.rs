@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::error::{Context, Error, Result};
+use crate::retention::{KEEP_VAR, Retention};
 use crate::rex;
 use crate::scheduler::{self, Interval, Job};
 use crate::state::{STATE_DIR_VAR, StateDir};
@@ -68,6 +69,9 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
 ///   and not a fallback when the server isn't running.
 /// - the state directory, as resolved here, so autosave shares snapshots,
 ///   lineage and recorder files with manual runs and the zsh recorder;
+/// - `REX_RESURRECT_KEEP`, if set, so autosave doesn't prune the snapshots
+///   the user wants kept (checked here, so a bad value fails now rather
+///   than every autosave);
 /// - `PATH`: `rex`'s directory first, then the system's.
 fn job_env() -> Result<BTreeMap<String, String>> {
     let server = match std::env::var_os(rex::SERVER_VAR).filter(|s| !s.is_empty()) {
@@ -78,6 +82,10 @@ fn job_env() -> Result<BTreeMap<String, String>> {
     let mut env = BTreeMap::new();
     env.insert(rex::SERVER_VAR.to_string(), server);
     env.insert(STATE_DIR_VAR.to_string(), utf8(state.path().as_os_str())?);
+    Retention::from_env()?;
+    if let Some(keep) = std::env::var_os(KEEP_VAR).filter(|v| !v.is_empty()) {
+        env.insert(KEEP_VAR.to_string(), utf8(&keep)?);
+    }
     env.insert("PATH".to_string(), job_path()?);
     Ok(env)
 }
