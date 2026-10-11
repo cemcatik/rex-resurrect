@@ -7,12 +7,14 @@
 use std::ffi::OsString;
 use std::fmt;
 
+use crate::list::ListOptions;
 use crate::restore::RestoreOptions;
 use crate::save::SaveOptions;
 
 pub enum Command {
     Save(SaveOptions),
     Restore(RestoreOptions),
+    List(ListOptions),
     Help,
     Version,
 }
@@ -20,12 +22,19 @@ pub enum Command {
 pub const USAGE: &str = "\
 Save Rex sessions and recreate them after the Rex server stops.
 
-Usage: rex-resurrect <command>
+Usage: rex-resurrect <command> [options]
 
 Commands:
   save      Save every session on the Rex server to a new snapshot
   restore   Recreate the latest snapshot's sessions that aren't live
+  list      List the snapshots, newest first, with their session labels
   help      Show this help
+
+Restore options:
+  --snapshot <id>    Restore from this snapshot (an ID from `list`) instead
+                     of the latest
+  --session <label>  Restore only the saved sessions with this label
+  -n, --dry-run      Print what would be created and skipped; create nothing
 
 Options:
   -h, --help     Show this help
@@ -60,6 +69,7 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, UsageE
     match command.as_str() {
         "save" => parse_save(&mut args).map(Command::Save),
         "restore" => parse_restore(&mut args).map(Command::Restore),
+        "list" => parse_list(&mut args).map(Command::List),
         "help" => Ok(Command::Help),
         "-V" | "--version" | "version" => Ok(Command::Version),
         other => Err(UsageError(format!("unknown command {other:?}"))),
@@ -75,9 +85,22 @@ fn parse_save(args: &mut Args) -> Result<SaveOptions, UsageError> {
 }
 
 fn parse_restore(args: &mut Args) -> Result<RestoreOptions, UsageError> {
-    let options = RestoreOptions::default();
+    let mut options = RestoreOptions::default();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--snapshot" => options.snapshot = Some(args.value(&arg)?),
+            "--session" => options.session = Some(args.value(&arg)?),
+            "-n" | "--dry-run" => options.dry_run = true,
+            _ => return Err(args.unexpected(&arg, "restore")),
+        }
+    }
+    Ok(options)
+}
+
+fn parse_list(args: &mut Args) -> Result<ListOptions, UsageError> {
+    let options = ListOptions::default();
     if let Some(arg) = args.next() {
-        return Err(args.unexpected(&arg, "restore"));
+        return Err(args.unexpected(&arg, "list"));
     }
     Ok(options)
 }
@@ -110,6 +133,12 @@ impl Args {
 
     fn next(&mut self) -> Option<String> {
         self.rest.next()
+    }
+
+    /// The value following `option`.
+    fn value(&mut self, option: &str) -> Result<String, UsageError> {
+        self.next()
+            .ok_or_else(|| UsageError(format!("{option} needs a value")))
     }
 
     fn unexpected(&self, arg: &str, command: &str) -> UsageError {

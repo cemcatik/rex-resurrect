@@ -21,8 +21,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use api::{
-    CreateSession, CreatedSession, SessionList, SessionSummary, SessionView, TerminalProcess,
-    TerminalPwd,
+    CreateSession, CreatedSession, ServerStatus, SessionList, SessionSummary, SessionView,
+    TerminalProcess, TerminalPwd,
 };
 
 /// A handle on one Rex server, reached through the `rex` CLI on `PATH`.
@@ -140,6 +140,10 @@ impl Rex {
             method: method.to_string(),
             detail: e.to_string(),
         })
+    }
+
+    pub fn server_status(&self) -> Result<ServerStatus, RexError> {
+        self.call("server.status", &json!({}))
     }
 
     pub fn list_sessions(&self) -> Result<Vec<SessionSummary>, RexError> {
