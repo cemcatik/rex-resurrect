@@ -106,12 +106,16 @@ fn a_session_that_fails_to_restore_when_save_restores_first_is_logged() {
     let a = env.mkdir("a");
     {
         let before = env.start_server();
+        let narrow = before.create_session("zz-narrow", &[window(shell(&a))]);
         let wide = before.create_session("zz-wide", &[window(shell(&a)), window(shell(&a))]);
+        before.wait_for_pwds(&narrow);
         before.wait_for_pwds(&wide);
         env.save(&before);
     } // The server stops, as in a restart.
 
     // A fresh server instance, so save restores first, and zz-wide fails.
+    // (A restore in which every session fails is covered in
+    // tests/unrestored_instance.rs.)
     let after = env.server().arg("--max-windows").arg("1").start();
     env.resurrect(&after).arg("save").run().assert_failure();
 

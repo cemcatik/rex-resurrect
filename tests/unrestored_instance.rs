@@ -202,6 +202,72 @@ fn restoring_a_whole_older_snapshot_counts_as_restoring_the_instance() {
     assert_eq!(sorted_labels(&server), ["zz-old"]);
 }
 
+/// What `rex-resurrect list` prints: one line per snapshot.
+fn listed(env: &TestEnv, server: &Server) -> String {
+    env.resurrect(server)
+        .arg("list")
+        .run()
+        .assert_success()
+        .stdout
+}
+
+/// Saves zz-wide, a session with two windows, on a server that then stops,
+/// and starts one that refuses a second window in any session: no restore
+/// can recreate zz-wide there. A session of its own, zz-early, gives a save
+/// there something to save.
+fn a_server_that_cant_restore_anything(env: &TestEnv) -> Server {
+    let a = env.mkdir("a");
+    {
+        let before = env.start_server();
+        let wide = before.create_session("zz-wide", &[window(shell(&a)), window(shell(&a))]);
+        before.wait_for_pwds(&wide);
+        env.save(&before);
+    }
+    let server = env.server().arg("--max-windows").arg("1").start();
+    let early = server.create_session("zz-early", &[window(shell(&a))]);
+    server.wait_for_pwds(&early);
+    server
+}
+
+/// A restore in which every session failed restored nothing: a save after it
+/// must still restore first rather than replace the latest snapshot.
+#[test]
+fn a_save_whose_restore_first_fails_for_every_session_saves_nothing_and_exits_non_zero() {
+    let env = TestEnv::new();
+    let server = a_server_that_cant_restore_anything(&env);
+    let snapshots = listed(&env, &server);
+
+    for _ in 0..2 {
+        let out = env.resurrect(&server).arg("save").run().assert_failure();
+        assert!(out.stdout.contains("restored first"), "{out}");
+        assert_eq!(listed(&env, &server), snapshots, "no new snapshot: {out}");
+    }
+    let entries = env.log_entries();
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.contains("save failed") && e.contains("nothing was saved")),
+        "{entries:#?}"
+    );
+
+    drop(server);
+    let third = env.start_server();
+    env.restore(&third);
+    assert_eq!(sorted_labels(&third), ["zz-wide"]);
+}
+
+#[test]
+fn a_restore_in_which_every_session_failed_does_not_count_as_restoring_the_instance() {
+    let env = TestEnv::new();
+    let server = a_server_that_cant_restore_anything(&env);
+    let snapshots = listed(&env, &server);
+    env.resurrect(&server).arg("restore").run().assert_failure();
+
+    let out = env.resurrect(&server).arg("save").run().assert_failure();
+    assert!(out.stdout.contains("restored first"), "{out}");
+    assert_eq!(listed(&env, &server), snapshots, "no new snapshot: {out}");
+}
+
 #[test]
 fn two_restores_started_at_once_create_no_duplicates() {
     let env = TestEnv::new();

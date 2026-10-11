@@ -112,6 +112,32 @@ fn a_config_reload_does_not_restore_again_even_after_a_restored_session_was_kill
 }
 
 #[test]
+fn an_auto_restore_in_which_every_session_failed_does_not_count_as_restoring_the_instance() {
+    let env = TestEnv::new();
+    let a = env.mkdir("a");
+    {
+        let before = env.start_server();
+        let wide = before.create_session("zz-wide", &[window(shell(&a)), window(shell(&a))]);
+        before.wait_for_pwds(&wide);
+        env.save(&before);
+    }
+    // A server that refuses a second window in any session can't recreate
+    // zz-wide.
+    let server = env
+        .server()
+        .arg("--max-windows")
+        .arg("1")
+        .init_lua(hook())
+        .start();
+    // The failed session's entry, then the outcome.
+    let entries = wait_for_auto_restores(&env, 2);
+    assert!(entries[1].contains("1 failed"), "{entries:#?}");
+
+    let out = env.resurrect(&server).arg("save").run().assert_failure();
+    assert!(out.stdout.contains("restored first"), "{out}");
+}
+
+#[test]
 fn a_repeated_trigger_creates_no_duplicates() {
     let env = TestEnv::new();
     saved_on_an_earlier_server(&env, &["zz-one", "zz-two"]);

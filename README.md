@@ -181,9 +181,16 @@ can't replace your latest snapshot with a near-empty one. It saves the blocks it
 as it restored them (working directory, last command, scrollback), since their shells are still
 starting and nothing has run in them yet. A save on a server already restored
 into never restores again, even if you've killed restored sessions since. A `--dry-run` or
-`--session` restore doesn't count, because it leaves sessions out; restoring a whole older
-snapshot does. Only one restore runs at a time, and a `save` that starts during a restore waits
-for it to finish.
+`--session` restore doesn't count, because it leaves sessions out: a save after it would replace
+your latest snapshot without the other sessions. Restoring a whole older snapshot does count.
+Only one restore runs at a time, and a `save` that starts during a restore waits for it to
+finish.
+
+A restore in which every session it tried to create failed (a server that refuses them, say)
+restored nothing, so it doesn't count either, whether it was `restore`, auto-restore or the
+restore a `save` runs first. Such a `save` saves nothing: it leaves `latest.json` alone, logs
+why and exits non-zero, and the next save restores first again. If only some sessions fail, the
+save goes ahead and still exits non-zero.
 
 rex-resurrect never starts a Rex server. If Rex isn't running, `save` and `restore` fail and
 say so.

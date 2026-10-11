@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use crate::capture;
 use crate::create;
-use crate::error::{Context, Result};
+use crate::error::{Context, Error, Result};
 use crate::instance::RestoreLock;
 use crate::lineage::LineageMap;
 use crate::restore::{self, CreatedBlocks};
@@ -49,7 +49,10 @@ pub enum Saved {
 /// yet, so that a save on a freshly started server can't replace the latest
 /// snapshot with a near-empty one. The blocks that restore created are
 /// saved as it created them: their shells are still starting. Still saves if
-/// some sessions failed to restore, but then exits non-zero.
+/// some sessions failed to restore, but then exits non-zero. If every
+/// session it tried failed, it restored nothing, so it saves nothing either:
+/// the latest snapshot stays as it is, and the next save restores first
+/// again.
 ///
 /// Holds the restore lock throughout: a save that finds a restore running
 /// waits for it rather than saving a half-restored server.
@@ -65,6 +68,12 @@ pub fn run(_options: &SaveOptions) -> Result<ExitCode> {
         println!("restored first: this server instance hadn't been restored into yet");
         let _ = report.print(&mut std::io::stdout().lock());
         report.log_failures(&state, "save (restoring first)");
+        if report.every_attempt_failed() {
+            return Err(Error::new(
+                "every session failed to restore into this server instance, so nothing was \
+                 saved: the latest snapshot is unchanged, and the next save restores first again",
+            ));
+        }
         restored_blocks = std::mem::take(&mut report.created_blocks);
     }
     match save(&rex, &state, settings, restored_blocks)? {

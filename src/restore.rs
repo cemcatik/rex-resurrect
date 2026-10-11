@@ -58,6 +58,9 @@ pub enum Outcome {
     Failed {
         label: String,
         error: String,
+        /// The session restore created for it all the same, if it got that
+        /// far. Its lineage is recorded, so no restore creates it again.
+        session_id: Option<String>,
     },
 }
 
@@ -92,10 +95,30 @@ impl RestoreReport {
         self.count(|o| matches!(o, Outcome::Failed { .. }))
     }
 
+    /// Whether restore tried to create at least one session and every try
+    /// failed before creating anything. Such a restore restored nothing, so
+    /// it doesn't count as restoring the server instance, and a save after
+    /// it mustn't replace the latest snapshot.
+    pub fn every_attempt_failed(&self) -> bool {
+        let attempted =
+            self.count(|o| matches!(o, Outcome::Created { .. } | Outcome::Failed { .. }));
+        let created = self.count(|o| {
+            matches!(
+                o,
+                Outcome::Created { .. }
+                    | Outcome::Failed {
+                        session_id: Some(_),
+                        ..
+                    }
+            )
+        });
+        attempted > 0 && created == 0
+    }
+
     /// Appends each session that failed to the log, as a failure of `command`.
     pub fn log_failures(&self, state: &StateDir, command: &str) {
         for outcome in &self.outcomes {
-            if let Outcome::Failed { label, error } = outcome {
+            if let Outcome::Failed { label, error, .. } = outcome {
                 log::log_failure(state, command, &format!("session {label:?}: {error}"));
             }
         }
@@ -119,7 +142,7 @@ impl RestoreReport {
                     label,
                     live_session_id,
                 } => writeln!(out, "skipped  {label}  (live as {live_session_id})")?,
-                Outcome::Failed { label, error } => writeln!(out, "failed   {label}: {error}")?,
+                Outcome::Failed { label, error, .. } => writeln!(out, "failed   {label}: {error}")?,
             }
         }
         if self.dry_run {
@@ -170,7 +193,8 @@ pub fn restore_unrestored_instance(
 
 /// Restores a snapshot and, once that has finished, records the server
 /// instance it restored into, unless `options` restore less than a whole
-/// snapshot. Sessions that failed to create don't stop it from finishing.
+/// snapshot or every session it tried to create failed. Sessions that
+/// failed don't stop it from finishing.
 pub fn restore(
     rex: &Rex,
     state: &StateDir,
@@ -179,7 +203,7 @@ pub fn restore(
 ) -> Result<RestoreReport> {
     let instance_id = rex.server_status()?.instance_id;
     let report = restore_sessions(rex, state, options)?;
-    if options.restores_whole_snapshot() {
+    if options.restores_whole_snapshot() && !report.every_attempt_failed() {
         lock.record_restored(&instance_id)?;
     }
     Ok(report)
@@ -234,6 +258,7 @@ fn restore_sessions(
                 report.outcomes.push(Outcome::Failed {
                     label,
                     error: e.to_string(),
+                    session_id: None,
                 });
                 continue;
             }
@@ -259,6 +284,7 @@ fn restore_sessions(
                         "created as {}, but its last commands couldn't be carried forward: {e}",
                         created.session_id
                     ),
+                    session_id: Some(created.session_id),
                 });
                 continue;
             }
