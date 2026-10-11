@@ -78,13 +78,25 @@ impl Scheduler for Launchd {
         )
     }
 
+    /// A plist left in the LaunchAgents directory is loaded at every login,
+    /// so one that launchd refused to load now is removed again.
     fn install(&self, job: &Job) -> Result<()> {
         let path = self.plist_path();
         write_plist(&path, &plist(&self.label, job))?;
         if self.is_loaded()? {
             launchctl_ok(&["bootout", &self.service()])?;
         }
-        launchctl_ok(&["bootstrap", &self.domain, path_str(&path)?])
+        let loaded = launchctl_ok(&["bootstrap", &self.domain, path_str(&path)?]);
+        if let Err(e) = loaded {
+            return Err(match fs::remove_file(&path) {
+                Ok(()) => Error::new(format!("{e}; removed {} again", path.display())),
+                Err(removing) => Error::new(format!(
+                    "{e}; and couldn't remove {} again: {removing}",
+                    path.display()
+                )),
+            });
+        }
+        Ok(())
     }
 
     fn uninstall(&self) -> Result<bool> {

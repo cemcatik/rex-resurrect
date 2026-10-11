@@ -51,6 +51,12 @@ impl FakeLaunchd {
         self.dir.join("LaunchAgents")
     }
 
+    /// Makes every `bootstrap` from now on fail, the way launchd refuses a
+    /// plist it can't load.
+    fn refuse_to_load(&self) {
+        std::fs::write(self.dir.join("refuse-bootstrap"), "").unwrap();
+    }
+
     /// The plists in the LaunchAgents directory.
     fn installed(&self) -> Vec<Agent> {
         plists_in(&self.agents_dir())
@@ -88,6 +94,10 @@ case "$1" in
     echo "Could not find service \"$label\" in domain for user gui" >&2
     exit 113 ;;
   bootstrap)
+    if [ -f "$state/refuse-bootstrap" ]; then
+      echo "Bootstrap failed: 5: Input/output error" >&2
+      exit 5
+    fi
     label=$(/usr/bin/plutil -extract Label raw -o - "$3") || exit 5
     if [ -f "$state/loaded/$label.plist" ]; then
       echo "Bootstrap failed: 5: Input/output error" >&2
@@ -473,6 +483,25 @@ fn a_test_label_keeps_a_scratch_agent_apart_from_the_real_one() {
 
     autosave("uninstall");
     assert!(launchd.installed().is_empty());
+    assert!(launchd.loaded().is_empty());
+}
+
+/// A plist left in LaunchAgents is loaded at the next login, so an agent
+/// launchd refused to load now mustn't stay there.
+#[test]
+fn an_agent_launchd_fails_to_load_is_not_left_installed() {
+    let env = TestEnv::new();
+    let launchd = FakeLaunchd::new(&env);
+    launchd.refuse_to_load();
+
+    let out = launchd
+        .aim(env.resurrect_at(NO_SERVER))
+        .args(["autosave", "install"])
+        .run()
+        .assert_failure();
+
+    assert!(out.stderr.contains("Bootstrap failed"), "{out}");
+    assert!(launchd.installed().is_empty(), "its plist was removed");
     assert!(launchd.loaded().is_empty());
 }
 
