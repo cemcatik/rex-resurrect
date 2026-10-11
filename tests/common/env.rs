@@ -99,6 +99,16 @@ impl TestEnv {
         self.root().join("state")
     }
 
+    /// Writes a block's recorder file the way any recorder would (the format
+    /// recorders share with rex-resurrect: `recorder/<block ID>` in the state
+    /// directory, holding the command and a newline). For playing a recorder
+    /// that records what the zsh one wouldn't.
+    pub fn write_recorder_file(&self, block_id: &str, command: &str) {
+        let dir = self.state_dir().join("recorder");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(block_id), format!("{command}\n")).unwrap();
+    }
+
     /// The harness `ZDOTDIR` (see [`ZshConfig`]).
     pub fn zdotdir(&self) -> PathBuf {
         self.root().join("zdot")

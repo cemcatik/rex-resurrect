@@ -3,6 +3,7 @@
 mod common;
 
 use std::path::Path;
+use std::time::Duration;
 
 use common::server::wait_for;
 use common::*;
@@ -42,6 +43,74 @@ fn the_last_command_is_typed_at_the_prompt_after_restore_but_not_run() {
     server.wait_for_typed(&restored, &blocks[0], &touch);
     server.wait_for_typed(&restored, &blocks[1], tail);
     assert!(!marker.exists(), "the typed command must not have run");
+}
+
+/// Waits for an empty prompt, then checks nothing gets typed after it either.
+fn assert_empty_prompt(server: &Server, session: &str, block: &str) {
+    server.wait_for_empty_prompt(session, block);
+    std::thread::sleep(Duration::from_millis(500));
+    let line = server.prompt_line(session, block);
+    assert!(line.ends_with(" %"), "expected an empty prompt: {line:?}");
+}
+
+#[test]
+fn a_block_where_no_command_was_ever_recorded_restores_with_an_empty_prompt() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
+    let fixture = server.create_session("zz-empty", &[window(hsplit(0.5, shell(&a), shell(&b)))]);
+    server.wait_for_pwds(&fixture);
+    let command = "echo zz-recorded";
+    server.run(&fixture.id, fixture.block_ids()[0], command);
+    server.wait_for_capture(&fixture.id, fixture.block_ids()[0], "the echo", |c| {
+        c.contains("\nzz-recorded")
+    });
+
+    env.save(&server);
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-empty");
+    let blocks = server.block_ids(&restored);
+    server.wait_for_typed(&restored, &blocks[0], command);
+    assert_empty_prompt(&server, &restored, &blocks[1]);
+}
+
+#[test]
+fn restore_never_types_a_multi_line_command_even_if_the_snapshot_holds_one() {
+    // No zsh recorder: a recorder file is written by hand instead, playing a
+    // recorder that doesn't skip multi-line commands.
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
+    let fixture = server.create_session("zz-multi", &[window(hsplit(0.5, shell(&a), shell(&b)))]);
+    server.wait_for_pwds(&fixture);
+    let markers = ["m1", "m2", "m3", "m4"].map(|name| a.join(name));
+    let touch = |i: usize| format!("touch {}", markers[i].display());
+    // Typed into a terminal, a line feed or a carriage return acts as Enter.
+    let commands = [
+        format!("{}\n{}", touch(0), touch(1)),
+        format!("{}\r{}", touch(2), touch(3)),
+    ];
+    for (block, command) in fixture.block_ids().into_iter().zip(&commands) {
+        env.write_recorder_file(block, command);
+    }
+
+    env.save(&server);
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-multi");
+    for block in server.block_ids(&restored) {
+        assert_empty_prompt(&server, &restored, &block);
+    }
+    for marker in &markers {
+        assert!(
+            !marker.exists(),
+            "{} must not have been created",
+            marker.display()
+        );
+    }
 }
 
 /// Saves, kills `session` and restores; returns the restored session (the one
