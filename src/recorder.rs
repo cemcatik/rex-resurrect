@@ -59,7 +59,9 @@ impl RecorderFiles {
             .mode(0o700)
             .create(&self.dir)
             .with_context(|| format!("creating {}", self.dir.display()))?;
-        state::write_file(&path, format!("{command}\n").as_bytes())
+        let tmp = self.dir.join(format!(".{block_id}.{}", std::process::id()));
+        state::write_file(&tmp, format!("{command}\n").as_bytes())?;
+        std::fs::rename(&tmp, &path).with_context(|| format!("writing {}", path.display()))
     }
 
     /// The block's recorder file. `None` for an ID that isn't a plain file
