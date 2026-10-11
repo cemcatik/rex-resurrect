@@ -218,3 +218,45 @@ fn a_single_session_restore_of_a_label_not_in_the_snapshot_fails_and_creates_not
     );
     assert!(server.sessions().is_empty(), "{:?}", server.sessions());
 }
+
+/// Dry-run lines naming a saved session that restore would create.
+fn would_create(out: &RunOutput) -> Vec<&str> {
+    out.stdout
+        .lines()
+        .filter(|line| line.starts_with("would create "))
+        .collect()
+}
+
+#[test]
+fn a_dry_run_prints_what_would_be_created_and_skipped_and_creates_nothing() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let gone = session_in(&server, "zz-gone", &a);
+    session_in(&server, "zz-kept", &a);
+    env.save(&server);
+    server.kill_session(&gone.id);
+    let before = server.sessions();
+
+    let out = env
+        .resurrect(&server)
+        .args(["restore", "--dry-run"])
+        .run()
+        .assert_success();
+
+    let [created] = would_create(&out)
+        .try_into()
+        .expect("one would-create line");
+    assert!(created.contains("zz-gone"), "{out}");
+    let [skipped] = out
+        .lines_starting("skipped")
+        .try_into()
+        .expect("one skipped line");
+    assert!(skipped.contains("zz-kept"), "{out}");
+    assert!(out.lines_starting("created").is_empty(), "{out}");
+    assert_eq!(server.sessions(), before, "a dry run creates no sessions");
+
+    // Nothing the dry run did stops a real restore.
+    let real = env.restore(&server);
+    assert_eq!(real.lines_starting("created").len(), 1, "{real}");
+}

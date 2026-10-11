@@ -18,6 +18,8 @@ pub struct RestoreOptions {
     pub snapshot: Option<String>,
     /// Restore only the saved sessions with this label (every one of them).
     pub session: Option<String>,
+    /// Print what would be created and skipped, and create nothing.
+    pub dry_run: bool,
 }
 
 /// What happened to one saved session.
@@ -26,6 +28,10 @@ pub enum Outcome {
     Created {
         label: String,
         session_id: String,
+    },
+    /// A dry run would create it.
+    WouldCreate {
+        label: String,
     },
     /// A session of its lineage is already live.
     Skipped {
@@ -42,6 +48,7 @@ pub enum Outcome {
 pub struct RestoreReport {
     /// False when there was no snapshot to restore from.
     pub had_snapshot: bool,
+    pub dry_run: bool,
     pub outcomes: Vec<Outcome>,
 }
 
@@ -63,12 +70,21 @@ impl RestoreReport {
                 Outcome::Created { label, session_id } => {
                     writeln!(out, "created  {label}  {session_id}")?
                 }
+                Outcome::WouldCreate { label } => writeln!(out, "would create  {label}")?,
                 Outcome::Skipped {
                     label,
                     live_session_id,
                 } => writeln!(out, "skipped  {label}  (live as {live_session_id})")?,
                 Outcome::Failed { label, error } => writeln!(out, "failed   {label}: {error}")?,
             }
+        }
+        if self.dry_run {
+            return writeln!(
+                out,
+                "dry run: {} would be created, {} skipped; nothing was changed",
+                self.count(|o| matches!(o, Outcome::WouldCreate { .. })),
+                self.count(|o| matches!(o, Outcome::Skipped { .. })),
+            );
         }
         writeln!(
             out,
@@ -91,9 +107,10 @@ pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
 }
 
 /// Creates each saved session whose lineage has no live session (ADR-0001)
-/// and records the new session's lineage. A session that fails to create
-/// doesn't stop the others; errors that stop the whole restore (no server,
-/// unreadable state) are returned.
+/// and records the new session's lineage; a dry run only reports what it
+/// would create. A session that fails to create doesn't stop the others;
+/// errors that stop the whole restore (no server, unreadable state) are
+/// returned.
 pub fn restore(rex: &Rex, state: &StateDir, options: &RestoreOptions) -> Result<RestoreReport> {
     let Some(snapshot) = chosen_snapshot(state, options)? else {
         return Ok(RestoreReport::default());
@@ -109,6 +126,7 @@ pub fn restore(rex: &Rex, state: &StateDir, options: &RestoreOptions) -> Result<
 
     let mut report = RestoreReport {
         had_snapshot: true,
+        dry_run: options.dry_run,
         outcomes: Vec::new(),
     };
     for saved in selected {
@@ -118,6 +136,10 @@ pub fn restore(rex: &Rex, state: &StateDir, options: &RestoreOptions) -> Result<
                 label,
                 live_session_id: live_session_id.clone(),
             });
+            continue;
+        }
+        if options.dry_run {
+            report.outcomes.push(Outcome::WouldCreate { label });
             continue;
         }
         match rex.create_session(&create::create_request(saved)) {
