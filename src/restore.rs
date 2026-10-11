@@ -8,6 +8,7 @@ use crate::create;
 use crate::error::{Context, Error, Result};
 use crate::lineage::{Lineage, LineageMap};
 use crate::rex::Rex;
+use crate::snapshot::{SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 
@@ -15,6 +16,8 @@ use crate::store::SnapshotStore;
 pub struct RestoreOptions {
     /// Restore from this snapshot (an identifier `list` shows) instead of the latest.
     pub snapshot: Option<String>,
+    /// Restore only the saved sessions with this label (every one of them).
+    pub session: Option<String>,
 }
 
 /// What happened to one saved session.
@@ -92,18 +95,10 @@ pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
 /// doesn't stop the others; errors that stop the whole restore (no server,
 /// unreadable state) are returned.
 pub fn restore(rex: &Rex, state: &StateDir, options: &RestoreOptions) -> Result<RestoreReport> {
-    let store = SnapshotStore::new(state);
-    let snapshot = match &options.snapshot {
-        Some(id) => Some(store.read(id)?.ok_or_else(|| {
-            Error::new(format!(
-                "no snapshot {id:?}: `rex-resurrect list` shows the snapshots"
-            ))
-        })?),
-        None => store.read_latest()?,
-    };
-    let Some(snapshot) = snapshot else {
+    let Some(snapshot) = chosen_snapshot(state, options)? else {
         return Ok(RestoreReport::default());
     };
+    let selected = selected_sessions(&snapshot, options)?;
     let live_sessions = rex.list_sessions()?;
     let mut lineages = LineageMap::load(state)?;
     let mut live: HashMap<Lineage, String> = live_sessions
@@ -116,7 +111,7 @@ pub fn restore(rex: &Rex, state: &StateDir, options: &RestoreOptions) -> Result<
         had_snapshot: true,
         outcomes: Vec::new(),
     };
-    for saved in &snapshot.sessions {
+    for saved in selected {
         let label = saved.label.clone();
         if let Some(live_session_id) = live.get(&saved.lineage) {
             report.outcomes.push(Outcome::Skipped {
@@ -147,4 +142,47 @@ pub fn restore(rex: &Rex, state: &StateDir, options: &RestoreOptions) -> Result<
         }
     }
     Ok(report)
+}
+
+/// The snapshot to restore from: the one asked for, else the latest
+/// (`None` before the first save).
+fn chosen_snapshot(state: &StateDir, options: &RestoreOptions) -> Result<Option<Snapshot>> {
+    let store = SnapshotStore::new(state);
+    let Some(id) = &options.snapshot else {
+        return store.read_latest();
+    };
+    match store.read(id)? {
+        Some(snapshot) => Ok(Some(snapshot)),
+        None => Err(Error::new(format!(
+            "no snapshot {id:?}: `rex-resurrect list` shows the snapshots"
+        ))),
+    }
+}
+
+/// The saved sessions to restore: every one, or every one with the label
+/// asked for. Asking for a label the snapshot doesn't hold is an error.
+fn selected_sessions<'a>(
+    snapshot: &'a Snapshot,
+    options: &RestoreOptions,
+) -> Result<Vec<&'a SavedSession>> {
+    let Some(label) = &options.session else {
+        return Ok(snapshot.sessions.iter().collect());
+    };
+    let selected: Vec<_> = snapshot
+        .sessions
+        .iter()
+        .filter(|s| s.label == *label)
+        .collect();
+    if selected.is_empty() {
+        let which = match &options.snapshot {
+            Some(id) => format!("snapshot {id}"),
+            None => "the latest snapshot".to_string(),
+        };
+        let labels: Vec<&str> = snapshot.sessions.iter().map(|s| s.label.as_str()).collect();
+        return Err(Error::new(format!(
+            "no saved session labelled {label:?} in {which}, which holds: {}",
+            labels.join(", ")
+        )));
+    }
+    Ok(selected)
 }

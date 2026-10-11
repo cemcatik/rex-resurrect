@@ -33,6 +33,7 @@ Commands:
 Restore options:
   --snapshot <id>  Restore from this snapshot (an ID from `list`) instead of
                    the latest
+  --session <label>  Restore only the saved sessions with this label
 
 Options:
   -h, --help     Show this help
@@ -85,6 +86,7 @@ fn parse_restore(args: &mut Args) -> Result<RestoreOptions, UsageError> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--snapshot" => options.snapshot = Some(args.value(&arg)?),
+            "--session" => options.session = Some(args.value(&arg)?),
             _ => return Err(args.unexpected(&arg, "restore")),
         }
     }

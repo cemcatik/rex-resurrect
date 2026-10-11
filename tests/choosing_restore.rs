@@ -158,3 +158,63 @@ fn restoring_an_older_snapshot_skips_saved_sessions_whose_lineage_is_live() {
         [shell(&b).expected_shape()]
     );
 }
+
+#[test]
+fn a_single_session_restore_creates_only_the_saved_sessions_with_that_label() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let [left, right, elsewhere] = ["left", "right", "elsewhere"].map(|name| env.mkdir(name));
+    let saved = [
+        session_in(&server, "zz-twin", &left),
+        session_in(&server, "zz-other", &elsewhere),
+        session_in(&server, "zz-twin", &right),
+    ];
+    env.save(&server);
+    for session in &saved {
+        server.kill_session(&session.id);
+    }
+
+    let out = env
+        .resurrect(&server)
+        .args(["restore", "--session", "zz-twin"])
+        .run()
+        .assert_success();
+
+    assert_eq!(out.lines_starting("created").len(), 2, "{out}");
+    assert_eq!(sorted_labels(&server), ["zz-twin", "zz-twin"]);
+    let mut shapes: Vec<Vec<Shape>> = server
+        .session_ids_labelled("zz-twin")
+        .iter()
+        .map(|id| server.window_shapes(id))
+        .collect();
+    shapes.sort_by_key(|shapes| format!("{shapes:?}"));
+    assert_eq!(
+        shapes,
+        [
+            vec![shell(&left).expected_shape()],
+            vec![shell(&right).expected_shape()]
+        ],
+    );
+}
+
+#[test]
+fn a_single_session_restore_of_a_label_not_in_the_snapshot_fails_and_creates_nothing() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let proj = session_in(&server, "zz-proj", &env.mkdir("a"));
+    env.save(&server);
+    server.kill_session(&proj.id);
+
+    let out = env
+        .resurrect(&server)
+        .args(["restore", "--session", "zz-missing"])
+        .run()
+        .assert_failure();
+
+    assert!(
+        out.stderr
+            .contains("no saved session labelled \"zz-missing\""),
+        "{out}"
+    );
+    assert!(server.sessions().is_empty(), "{:?}", server.sessions());
+}
