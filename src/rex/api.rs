@@ -188,6 +188,16 @@ pub struct TerminalProcess {
     pub home: Option<PathBuf>,
 }
 
+impl TerminalProcess {
+    /// The process in the terminal's foreground, unless it's the block's
+    /// own shell.
+    pub fn foreground_program(&self) -> Option<&ProcessInfo> {
+        self.foreground
+            .as_ref()
+            .filter(|_| self.ancestors.len() > 1)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ProcessInfo {
     pub pid: u32,
