@@ -7,12 +7,14 @@
 use std::ffi::OsString;
 use std::fmt;
 
+use crate::list::ListOptions;
 use crate::restore::RestoreOptions;
 use crate::save::SaveOptions;
 
 pub enum Command {
     Save(SaveOptions),
     Restore(RestoreOptions),
+    List(ListOptions),
     Help,
     Version,
 }
@@ -25,6 +27,7 @@ Usage: rex-resurrect <command>
 Commands:
   save      Save every session on the Rex server to a new snapshot
   restore   Recreate the latest snapshot's sessions that aren't live
+  list      List the snapshots, newest first, with their session labels
   help      Show this help
 
 Options:
@@ -58,6 +61,7 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, UsageE
     match command.as_str() {
         "save" => parse_save(&mut args).map(Command::Save),
         "restore" => parse_restore(&mut args).map(Command::Restore),
+        "list" => parse_list(&mut args).map(Command::List),
         "help" => Ok(Command::Help),
         "-V" | "--version" | "version" => Ok(Command::Version),
         other => Err(UsageError(format!("unknown command {other:?}"))),
@@ -76,6 +80,14 @@ fn parse_restore(args: &mut Args) -> Result<RestoreOptions, UsageError> {
     let options = RestoreOptions::default();
     if let Some(arg) = args.next() {
         return Err(args.unexpected(&arg, "restore"));
+    }
+    Ok(options)
+}
+
+fn parse_list(args: &mut Args) -> Result<ListOptions, UsageError> {
+    let options = ListOptions::default();
+    if let Some(arg) = args.next() {
+        return Err(args.unexpected(&arg, "list"));
     }
     Ok(options)
 }

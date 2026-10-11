@@ -6,6 +6,7 @@ mod cli;
 mod create;
 mod error;
 mod lineage;
+mod list;
 mod restore;
 mod rex;
 mod save;
@@ -30,6 +31,7 @@ fn main() -> ExitCode {
     let result = match command {
         Command::Save(options) => save::run(&options),
         Command::Restore(options) => restore::run(&options),
+        Command::List(options) => list::run(&options),
         Command::Help => {
             print!("{}", cli::USAGE);
             Ok(ExitCode::SUCCESS)
