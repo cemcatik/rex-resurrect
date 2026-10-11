@@ -8,7 +8,7 @@ use std::fmt::Display;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::error::{Context, Result};
 use crate::state::StateDir;
@@ -28,6 +28,10 @@ impl Log {
             state: state.clone(),
             path: state.join(LOG),
         }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// Appends `<UTC timestamp> <message>` as one line: line breaks in

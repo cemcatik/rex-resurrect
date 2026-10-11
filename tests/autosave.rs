@@ -316,7 +316,7 @@ fn installed_outside_rex_a_scheduled_save_saves_the_rex_apps_server() {
 
     // No REX_SERVER, as outside Rex. The harness sets XDG_RUNTIME_DIR, which
     // moves rex's own default endpoint away from the app's server.
-    launchd
+    let install = launchd
         .aim(env.resurrect(&server))
         .env_remove("REX_SERVER")
         .env("HOME", &home)
@@ -328,6 +328,12 @@ fn installed_outside_rex_a_scheduled_save_saves_the_rex_apps_server() {
     server.kill_session(&fixture.id);
     env.restore(&server);
     assert_eq!(server.session_ids_labelled("zz-app").len(), 1);
+    // Install says which server autosave saves, so the user can check.
+    let endpoint = format!(
+        "unix://{}",
+        app_socket.to_str().unwrap().replace(' ', "%20")
+    );
+    assert!(install.stdout.contains(&endpoint), "{install}");
 }
 
 #[test]

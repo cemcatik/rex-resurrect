@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::error::{Context, Error, Result};
+use crate::log::Log;
 use crate::retention::{KEEP_VAR, Retention};
 use crate::rex;
 use crate::scheduler::{self, Interval, Job};
@@ -43,18 +44,26 @@ pub fn run(command: &AutosaveCommand) -> Result<ExitCode> {
 
 fn install(options: &InstallOptions) -> Result<ExitCode> {
     let program = std::env::current_exe().with_context(|| "finding rex-resurrect's own path")?;
+    let state = StateDir::from_env()?;
     let job = Job {
         program: utf8(program.as_os_str())?,
         args: vec!["save".to_string()],
-        env: job_env()?,
+        env: job_env(&state)?,
         interval: options.interval,
     };
     let scheduler = scheduler::for_this_platform()?;
     scheduler.install(&job)?;
     println!(
-        "autosave installed: `rex-resurrect save` runs every {} as {}",
+        "autosave installed: `rex-resurrect save` runs every {} as {}\n\
+         - server: {}\n\
+         - state:  {}\n\
+         - log:    {} (failures only)\n\
+         Install again after changing which server or state directory to use.",
         job.interval,
-        scheduler.describe()
+        scheduler.describe(),
+        job.env[rex::SERVER_VAR],
+        state.path().display(),
+        Log::new(&state).path().display(),
     );
     Ok(ExitCode::SUCCESS)
 }
@@ -73,12 +82,11 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
 ///   the user wants kept (checked here, so a bad value fails now rather
 ///   than every autosave);
 /// - `PATH`: `rex`'s directory first, then the system's.
-fn job_env() -> Result<BTreeMap<String, String>> {
+fn job_env(state: &StateDir) -> Result<BTreeMap<String, String>> {
     let server = match std::env::var_os(rex::SERVER_VAR).filter(|s| !s.is_empty()) {
         Some(server) => utf8(&server)?,
         None => rex::app_server_endpoint(&workdir::home()?),
     };
-    let state = StateDir::from_env()?;
     let mut env = BTreeMap::new();
     env.insert(rex::SERVER_VAR.to_string(), server);
     env.insert(STATE_DIR_VAR.to_string(), utf8(state.path().as_os_str())?);
