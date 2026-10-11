@@ -18,9 +18,6 @@ use crate::store::SnapshotStore;
 use crate::timestamp::Timestamp;
 use crate::upkeep::{self, Live};
 
-#[derive(Debug, Default)]
-pub struct SaveOptions {}
-
 /// Save's settings, from the environment.
 pub struct Settings {
     pub retention: Retention,
@@ -56,7 +53,7 @@ pub enum Saved {
 ///
 /// Holds the restore lock throughout: a save that finds a restore running
 /// waits for it rather than saving a half-restored server.
-pub fn run(_options: &SaveOptions) -> Result<ExitCode> {
+pub fn run() -> Result<ExitCode> {
     // Configuration first: a bad setting fails before anything is restored.
     let settings = Settings::from_env()?;
     let rex = Rex::from_env();

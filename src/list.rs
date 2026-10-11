@@ -7,10 +7,7 @@ use crate::error::Result;
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 
-#[derive(Debug, Default)]
-pub struct ListOptions {}
-
-pub fn run(_options: &ListOptions) -> Result<ExitCode> {
+pub fn run() -> Result<ExitCode> {
     let store = SnapshotStore::new(&StateDir::from_env()?);
     let ids = store.list()?;
     let mut out = std::io::stdout().lock();

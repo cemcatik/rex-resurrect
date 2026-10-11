@@ -3,13 +3,11 @@
 //!
 //! Parsing is strict about what rex-resurrect relies on (a changed shape is an
 //! error, not an empty snapshot) and lenient about the rest: unknown keys are
-//! ignored, and keys Rex omits instead of sending `false`/`null` (`active`,
-//! `windows` on an empty session, `layout` on a tiled layer whose blocks all
-//! floated away) default.
+//! ignored, and keys Rex omits instead of sending `false`/`null` (`windows`
+//! on an empty session, `layout` on a tiled layer whose blocks all floated
+//! away) default.
 //!
-//! The model covers the fields rex-resurrect's features use, including some
-//! the current code doesn't read yet (labels, host IDs, process details).
-#![allow(dead_code)]
+//! The model covers only the fields rex-resurrect reads.
 
 use std::path::{Path, PathBuf};
 
@@ -49,7 +47,6 @@ pub struct SessionList {
 #[derive(Debug, Deserialize)]
 pub struct SessionSummary {
     pub session_id: String,
-    pub label: String,
 }
 
 // ---- session.view ----------------------------------------------------------
@@ -97,8 +94,6 @@ impl SessionView {
 pub struct WindowView {
     pub window_id: String,
     pub label: String,
-    #[serde(default)]
-    pub active: bool,
     pub layers: Vec<LayerView>,
 }
 
@@ -246,8 +241,6 @@ pub struct ProcessInfo {
     /// was started by: Claude Code's `claude` is a symlink to an executable
     /// named for its version.
     pub name: String,
-    #[serde(default)]
-    pub path: Option<PathBuf>,
     /// The path it was started by (`~/.local/bin/claude`), before symlinks.
     #[serde(default)]
     pub invoked_path: Option<PathBuf>,
@@ -370,7 +363,6 @@ pub struct CreatedSession {
 
 #[derive(Debug, Deserialize)]
 pub struct CreatedWindow {
-    pub window_id: String,
     /// In depth-first, before-then-after order of the window's layout.
     pub block_ids: Vec<String>,
 }
