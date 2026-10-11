@@ -260,6 +260,61 @@ pub fn tiled_layouts(view: &Value) -> Vec<Shape> {
         .collect()
 }
 
+/// A window's labels as `session.view` reports them.
+#[derive(Clone, Debug)]
+pub struct WindowLabels {
+    pub window_id: String,
+    pub label: String,
+    /// The tiled layout's block labels, in depth-first, before-then-after order.
+    pub block_labels: Vec<String>,
+}
+
+/// Each window's labels from a `session.view` result, in window order.
+pub fn labels(view: &Value) -> Vec<WindowLabels> {
+    let windows = view["windows"].as_array().cloned().unwrap_or_default();
+    windows
+        .iter()
+        .zip(tiled_layouts(view))
+        .map(|(w, layout)| {
+            let tiled = w["layers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|layer| layer["kind"] == "tiled")
+                .unwrap();
+            let label_of = |block_id: &str| -> String {
+                tiled["blocks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|b| b["block_id"] == block_id)
+                    .unwrap_or_else(|| {
+                        panic!("block {block_id} is in the layout but not in blocks[]")
+                    })["label"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            };
+            let mut block_labels = Vec::new();
+            layout.map_blocks(&mut |block_id| {
+                block_labels.push(label_of(&block_id));
+                block_id
+            });
+            WindowLabels {
+                window_id: w["window_id"].as_str().unwrap().to_string(),
+                label: w["label"].as_str().unwrap().to_string(),
+                block_labels,
+            }
+        })
+        .collect()
+}
+
+/// The label Rex generates for a window nobody labeled: `Window ` plus the
+/// last 8 hex characters of its ID.
+pub fn default_window_label(window_id: &str) -> String {
+    format!("Window {}", &window_id[window_id.len() - 8..])
+}
+
 fn shape_of(node: &Value) -> Shape {
     if let Some(split) = node.get("split") {
         Shape::Split {
