@@ -103,6 +103,20 @@ pub enum SavedLayout {
     Split(SavedSplit),
 }
 
+impl SavedLayout {
+    /// The layout's blocks in depth-first, `before`-then-`after` order.
+    pub fn blocks(&self) -> Vec<&SavedBlock> {
+        match self {
+            SavedLayout::Block(block) => vec![block],
+            SavedLayout::Split(split) => {
+                let mut blocks = split.before.blocks();
+                blocks.extend(split.after.blocks());
+                blocks
+            }
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SavedSplit {
     pub direction: Direction,

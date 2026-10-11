@@ -30,7 +30,7 @@ use crate::account::Account;
 use crate::error::{Context, Result};
 use crate::rex::Rex;
 use crate::rex::api::{FormatArgs, TerminalOptions};
-use crate::snapshot::SavedBlock;
+use crate::snapshot::{SavedBlock, SavedSession};
 use crate::state::{self, StateDir};
 use crate::timestamp::Timestamp;
 
@@ -163,6 +163,25 @@ impl SnapshotScrollback {
         let name = format!("{block_id}.vt");
         state::write_file(&self.dir.join(&name), content.as_bytes())?;
         Ok(Some(self.relative.join(name)))
+    }
+
+    /// Removes the scrollback saved for a session that save then leaves out
+    /// of the snapshot (an untouched session).
+    pub fn discard(&self, session: &SavedSession) -> Result<()> {
+        let blocks = session.windows.iter().flat_map(|w| w.layout.blocks());
+        for relative in blocks.filter_map(|block| block.scrollback.as_deref()) {
+            let Ok(name) = relative.strip_prefix(&self.relative) else {
+                continue;
+            };
+            let path = self.dir.join(name);
+            match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(e).with_context(|| format!("removing {}", path.display()));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
 

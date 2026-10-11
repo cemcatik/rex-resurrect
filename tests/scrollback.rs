@@ -265,6 +265,38 @@ fn scrollback_is_private_and_kept_only_as_long_as_its_snapshot() {
     );
 }
 
+#[test]
+fn an_untouched_sessions_scrollback_is_not_kept() {
+    // No recorder, and rex-resurrect's home is the untouched session's
+    // directory: after `seq` it has no last command and is still at home.
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let home = env.mkdir("home");
+    let untouched = server.create_session("zz-untouched", &[window(shell(&home))]);
+    let touched = server.create_session("zz-touched", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&untouched);
+    server.wait_for_pwds(&touched);
+    let block = untouched.block_ids()[0];
+    server.run(&untouched.id, block, "seq 1 20000");
+    server.wait_for_capture(&untouched.id, block, "the whole sequence", |c| {
+        c.contains("\n20000\n")
+    });
+
+    let out = env
+        .resurrect(&server)
+        .env("HOME", &home)
+        .arg("save")
+        .run()
+        .assert_success();
+
+    assert!(out.stdout.contains("saved 1 session(s)"), "{out}");
+    let kept = disk_usage(&env.state_dir());
+    assert!(
+        kept < 20_000,
+        "the untouched session's 20,000 lines aren't kept ({kept} bytes)"
+    );
+}
+
 /// Also measures how long the save takes (shown with `--nocapture`), to
 /// check that scheduled saves stay fast with a long scrollback.
 #[test]

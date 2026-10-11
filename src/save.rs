@@ -102,6 +102,8 @@ fn save_snapshot(
             .with_context(|| format!("saving session {:?} ({})", view.label, view.session_id))?;
         if worth_saving(&saved, &local.home) {
             sessions.push(saved);
+        } else {
+            local.scrollback.discard(&saved)?;
         }
     }
     if sessions.is_empty() {
