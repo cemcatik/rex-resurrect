@@ -68,3 +68,55 @@ fn a_split_ratio_outside_0_to_1_fails_save_and_writes_nothing() {
 
     assert_latest_is_unchanged(&env, &server, &fixture, &layout);
 }
+
+#[test]
+fn a_session_list_in_another_shape_fails_save_instead_of_looking_like_an_empty_server() {
+    let env = TestEnv::new();
+    let (server, fixture, layout) = server_with_a_saved_split(&env);
+    let mut list = server.call("session.list", &json!({}));
+    list = json!({ "items": list["sessions"].take() });
+    let stub = RexStub::new(&env).answer("session.list", &list);
+
+    let out = env
+        .resurrect(&server)
+        .path_prepend(stub.dir())
+        .arg("save")
+        .run()
+        .assert_failure();
+    assert!(out.stderr.contains("sessions"), "{out}");
+
+    assert_latest_is_unchanged(&env, &server, &fixture, &layout);
+}
+
+/// Rex omits `windows` for a session that has none, so a renamed `windows`
+/// must not pass for a session with no windows (which save leaves out).
+#[test]
+fn a_session_view_whose_windows_moved_fails_save() {
+    let env = TestEnv::new();
+    let (server, fixture, layout) = server_with_a_saved_split(&env);
+    let mut view = server.view(&fixture.id);
+    let windows = view.as_object_mut().unwrap().remove("windows").unwrap();
+    view["tabs"] = windows;
+
+    let out = save_with_view(&env, &server, &view).assert_failure();
+    assert!(out.stderr.contains("windows"), "{out}");
+
+    assert_latest_is_unchanged(&env, &server, &fixture, &layout);
+}
+
+/// A tiled layer's `layout` is null when all its blocks floated away, so a
+/// renamed `layout` must not pass for a window with nothing tiled.
+#[test]
+fn a_tiled_layer_whose_layout_moved_fails_save() {
+    let env = TestEnv::new();
+    let (server, fixture, layout) = server_with_a_saved_split(&env);
+    let mut view = server.view(&fixture.id);
+    let tiled = tiled_layer(&mut view, 0);
+    let tree = tiled.as_object_mut().unwrap().remove("layout").unwrap();
+    tiled["tree"] = tree;
+
+    let out = save_with_view(&env, &server, &view).assert_failure();
+    assert!(out.stderr.contains("layout"), "{out}");
+
+    assert_latest_is_unchanged(&env, &server, &fixture, &layout);
+}

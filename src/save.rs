@@ -65,6 +65,9 @@ pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved
 
 /// Whether a live session has anything to restore. A server where no
 /// session does is an empty server, and saving from it writes nothing.
-fn worth_saving(_session: &SavedSession) -> bool {
-    true
+///
+/// A session with no windows (Rex keeps one live after its last shell
+/// exits) or nothing tiled has nothing to restore.
+fn worth_saving(session: &SavedSession) -> bool {
+    !session.windows.is_empty()
 }
