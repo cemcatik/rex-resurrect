@@ -5,6 +5,7 @@ mod capture;
 mod cli;
 mod create;
 mod error;
+mod label;
 mod lineage;
 mod list;
 mod restore;

@@ -36,5 +36,6 @@ pub mod zsh;
 
 pub use env::{STATE_DIR_VAR, TestEnv};
 pub use fixture::{FixtureSession, Layout, Shape, Window, block, hsplit, shell, vsplit, window};
+pub use fixture::{WindowLabels, default_window_label, labels};
 pub use resurrect::{ResurrectCmd, RunOutput};
 pub use server::{Server, SessionSummary};

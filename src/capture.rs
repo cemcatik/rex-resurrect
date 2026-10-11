@@ -1,6 +1,7 @@
 //! Turning a live session (its `session.view`) into a saved session.
 
 use crate::error::{Error, Result};
+use crate::label;
 use crate::lineage::Lineage;
 use crate::rex::Rex;
 use crate::rex::api::{BlockView, LayerView, LayoutView, SessionView, WindowView};
@@ -38,6 +39,7 @@ fn saved_window(
         return Ok(None);
     };
     Ok(Some(SavedWindow {
+        label: label::user_set_window_label(window).map(str::to_owned),
         layout: saved_layout(rex, session, tiled, layout)?,
     }))
 }
@@ -68,6 +70,7 @@ fn saved_layout(
 
 fn saved_block(rex: &Rex, session: &SessionView, block: &BlockView) -> Result<SavedBlock> {
     Ok(SavedBlock {
+        label: label::user_set_block_label(block).map(str::to_owned),
         working_directory: workdir::working_directory(rex, &session.session_id, &block.block_id)?,
     })
 }
