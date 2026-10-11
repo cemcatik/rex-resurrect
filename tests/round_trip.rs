@@ -1,5 +1,5 @@
 //! Save, kill, restore: the session comes back with the same windows, splits,
-//! ratios and working directories.
+//! ratios, working directories and user-set labels.
 
 mod common;
 
@@ -9,7 +9,7 @@ use common::*;
 use serde_json::json;
 
 #[test]
-fn restore_recreates_windows_splits_ratios_and_working_directories() {
+fn restore_recreates_windows_splits_ratios_working_directories_and_labels() {
     let env = TestEnv::new();
     let server = env.start_server();
     let [a, spaced, c, d, e, f, moved] =
