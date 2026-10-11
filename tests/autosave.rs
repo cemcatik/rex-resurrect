@@ -160,6 +160,11 @@ impl Agent {
         self.plist["StartInterval"].as_u64().unwrap()
     }
 
+    /// Where launchd sends the job's stdout and stderr.
+    fn output_paths(&self) -> [Option<&str>; 2] {
+        ["StandardOutPath", "StandardErrorPath"].map(|key| self.plist[key].as_str())
+    }
+
     fn environment(&self) -> Vec<(&str, &str)> {
         self.plist["EnvironmentVariables"]
             .as_object()
@@ -323,6 +328,52 @@ fn installed_outside_rex_a_scheduled_save_saves_the_rex_apps_server() {
     server.kill_session(&fixture.id);
     env.restore(&server);
     assert_eq!(server.session_ids_labelled("zz-app").len(), 1);
+}
+
+#[test]
+fn a_successful_scheduled_save_is_silent() {
+    let env = TestEnv::new();
+    let launchd = FakeLaunchd::new(&env);
+    let server = env.start_server();
+    launchd
+        .aim(env.resurrect(&server))
+        .args(["autosave", "install"])
+        .run()
+        .assert_success();
+    let agent = launchd.the_agent();
+
+    agent.run_as_launchd(&env).assert_success();
+
+    // launchd's default for output isn't documented, so the agent says.
+    assert_eq!(agent.output_paths(), [Some("/dev/null"); 2]);
+    assert_eq!(env.log_entries(), Vec::<String>::new());
+}
+
+#[test]
+fn a_scheduled_save_while_rex_is_not_running_logs_the_failure_and_starts_no_server() {
+    let env = TestEnv::new();
+    let launchd = FakeLaunchd::new(&env);
+    let endpoint = {
+        let server = env.start_server();
+        launchd
+            .aim(env.resurrect(&server))
+            .args(["autosave", "install"])
+            .run()
+            .assert_success();
+        server.endpoint().to_string()
+    }; // Rex quits.
+
+    let job = launchd.the_agent().run_as_launchd(&env);
+
+    if let Some(pid) = env.server_pid_at(&endpoint) {
+        let _ = Command::new("kill").arg(pid.to_string()).status();
+        panic!("the scheduled save started a Rex server (pid {pid}) at {endpoint}");
+    }
+    job.assert_failure();
+    let entries = env.log_entries();
+    assert_eq!(entries.len(), 1, "{entries:#?}");
+    assert!(entries[0].contains("save failed"), "{entries:#?}");
+    assert!(entries[0].contains("isn't running"), "{entries:#?}");
 }
 
 /// Asserts `out` tells the user how to remove the zsh recorder and the

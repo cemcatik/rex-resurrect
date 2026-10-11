@@ -119,6 +119,12 @@ fn plist(label: &str, job: &Job) -> String {
 {environment}	</dict>
 	<key>StartInterval</key>
 	<integer>{interval}</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>StandardOutPath</key>
+	<string>/dev/null</string>
+	<key>StandardErrorPath</key>
+	<string>/dev/null</string>
 </dict>
 </plist>
 "#,
