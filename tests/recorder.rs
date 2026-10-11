@@ -137,3 +137,28 @@ fn the_recorder_loads_as_an_oh_my_zsh_custom_plugin() {
 
     assert_restored_with_typed(&env, &server, "zz-omz", &[&command]);
 }
+
+#[test]
+fn an_ignored_command_leaves_the_previous_last_command_in_place() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let sub = env.mkdir("a/sub");
+    std::fs::write(sub.join("zz-listed"), "").unwrap();
+    let fixture = server.create_session("zz-ignored", &[window(shell(&a))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    let meaningful = format!("touch {}", a.join("meaningful").display());
+    server.run(&fixture.id, block, &meaningful);
+    wait_for_file(&a.join("meaningful"));
+    // Ignored by default, with or without arguments.
+    server.run(&fixture.id, block, "cd sub");
+    server.wait_for_pwd_eq(&fixture.id, block, &sub);
+    server.run(&fixture.id, block, "clear");
+    server.run(&fixture.id, block, "ls -a");
+    server.wait_for_capture(&fixture.id, block, "the ls output", |c| {
+        c.contains("zz-listed")
+    });
+
+    assert_restored_with_typed(&env, &server, "zz-ignored", &[&meaningful]);
+}
