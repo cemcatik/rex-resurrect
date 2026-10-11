@@ -36,7 +36,7 @@ pub fn run(options: &SaveOptions) -> Result<ExitCode> {
     let lock = RestoreLock::acquire(&state)?;
     let restored_first = restore::restore_unrestored_instance(&rex, &state, &lock)?;
     if let Some(report) = &restored_first {
-        println!("restoring first: this server instance hasn't been restored yet");
+        println!("restored first: this server instance hadn't been restored into yet");
         let _ = report.print(&mut std::io::stdout().lock());
     }
     let saved = save(&rex, &state, options)?;

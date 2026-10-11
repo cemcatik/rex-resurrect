@@ -121,7 +121,8 @@ pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
 }
 
 /// Restores into the server's current instance, unless rex-resurrect already
-/// has: `None` then. This is how `save` treats an unrestored server instance.
+/// has: `None` then. `save` runs this first; auto-restore, once the server is
+/// ready, needs nothing else.
 pub fn restore_unrestored_instance(
     rex: &Rex,
     state: &StateDir,
