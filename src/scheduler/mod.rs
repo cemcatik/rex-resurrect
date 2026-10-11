@@ -25,7 +25,7 @@ pub struct Job {
 
 /// Installs one job, the autosave, and removes it again.
 pub trait Scheduler {
-    /// What the job is installed as, for messages: "the launchd agent …".
+    /// What the job is installed as, for messages: "launchd agent …".
     fn describe(&self) -> String;
 
     /// Installs `job` and starts its timer, replacing the installed job if

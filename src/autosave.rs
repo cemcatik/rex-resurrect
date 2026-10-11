@@ -54,7 +54,7 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
     let scheduler = scheduler::for_this_platform()?;
     scheduler.install(&job)?;
     println!(
-        "autosave installed: `rex-resurrect save` runs every {} as {}\n\
+        "autosave installed: `rex-resurrect save` runs every {} as the {}\n\
          - server: {}\n\
          - state:  {}\n\
          - log:    {} (failures only)\n\
@@ -135,7 +135,7 @@ const AUTO_RESTORE_DOCS: &str = "https://github.com/cemcatik/rex-resurrect#auto-
 fn uninstall() -> Result<ExitCode> {
     let scheduler = scheduler::for_this_platform()?;
     if scheduler.uninstall()? {
-        println!("autosave uninstalled: removed {}", scheduler.describe());
+        println!("autosave uninstalled: removed the {}", scheduler.describe());
     } else {
         println!(
             "autosave wasn't installed: there was no {}",

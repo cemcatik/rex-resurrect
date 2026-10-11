@@ -72,7 +72,7 @@ impl Launchd {
 impl Scheduler for Launchd {
     fn describe(&self) -> String {
         format!(
-            "the launchd agent {} ({})",
+            "launchd agent {} ({})",
             self.label,
             self.plist_path().display()
         )
