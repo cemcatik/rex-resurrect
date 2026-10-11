@@ -185,7 +185,7 @@ pub fn restore_unrestored_instance(
     lock: &RestoreLock,
 ) -> Result<Option<RestoreReport>> {
     let instance_id = rex.server_status()?.instance_id;
-    if lock.last_restored()?.as_deref() == Some(instance_id.as_str()) {
+    if lock.is_restored(&instance_id)? {
         return Ok(None);
     }
     restore(rex, state, lock, &RestoreOptions::default()).map(Some)

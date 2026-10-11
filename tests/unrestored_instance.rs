@@ -122,6 +122,24 @@ fn with_no_snapshot_yet_save_saves_and_counts_the_instance_as_restored() {
     );
 }
 
+/// Another server can restore too: one started by hand without its own
+/// `--config` runs the user's init.lua, auto-restore included. That mustn't
+/// make a server already restored into look unrestored, or its next save
+/// would bring back sessions killed since.
+#[test]
+fn a_restore_into_another_server_leaves_this_one_counted_as_restored() {
+    let env = TestEnv::new();
+    saved_on_an_earlier_server(&env, &["zz-proj"]);
+    let server = env.start_server();
+    env.restore(&server);
+    server.kill_session(&server.the_session_labelled("zz-proj"));
+    let other = env.start_server();
+    env.restore(&other);
+
+    env.save(&server);
+    assert_eq!(server.sessions(), [], "zz-proj came back");
+}
+
 /// Restores the latest snapshot into a fresh server instance with `command`
 /// (`restore`, or a `save` that restores first), then kills every session
 /// restored and saves again.

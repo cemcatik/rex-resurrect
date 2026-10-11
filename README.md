@@ -215,9 +215,10 @@ Snapshots and rex-resurrect's own bookkeeping live in its state directory:
 
 It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which live session
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
-sessions that are already live. `last-restored-instance` names the server instance restore last
-ran in, and `restore.lock` makes restores take turns. `recorder/` holds one file per block with
-its last command, or an empty line for a block restore created with none. Each save that writes a snapshot then removes the `recorder/` files of
+sessions that are already live. `restored-instances` names the server instances restore has run
+in (the 32 most recent), and `restore.lock` makes restores take turns. `recorder/` holds one file
+per block with its last command, or an empty line for a block restore created with none. Each
+save that writes a snapshot then removes the `recorder/` files of
 blocks that no longer exist and the `lineage.json` entries of sessions that no longer exist, so
 the directory doesn't grow forever. A save that fails or writes nothing removes nothing.
 `scrollback/` holds each snapshot's block scrollback, which goes when its snapshot goes; a block
@@ -321,7 +322,9 @@ for your shells, the server most likely doesn't have it, so put it in the line:
 
 `rex config check` runs `init.lua` too. There auto-restore says it wasn't started by a Rex server
 and does nothing. Any other Rex server that reads the same `init.lua` (one you start by hand with
-`rex server run` and no `--config`, say) gets your sessions restored into it too.
+`rex server run` and no `--config`, say) gets your sessions restored into it too. That doesn't
+make your own server look unrestored: rex-resurrect remembers every recent server instance it
+restored into, not just the last.
 
 If auto-restore can't tell which endpoint is the server's (one containing a space that isn't
 percent-encoded; Rex's own endpoints are encoded), it gives up and logs that rather than restore
