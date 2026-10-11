@@ -1,0 +1,40 @@
+//! Test harness shared by every integration test.
+//!
+//! Tests drive the built `rex-resurrect` binary against a throwaway Rex
+//! server and assert only on what Rex reports (`session.view`, `pwd`,
+//! `rex capture`), never on the snapshot file's format.
+//!
+//! - [`TestEnv`]: one test's temp world (state dir, harness `ZDOTDIR`,
+//!   scratch dirs). Start servers from it and run the binary through it.
+//! - [`Server`]: a throwaway `rex server run` with its own short socket path,
+//!   `--state-dir` and init.lua, plus the client calls tests need (create,
+//!   view, write, pwd, capture, kill, rename). Stopped on drop.
+//! - [`fixture`]: layouts to create (`window`, `hsplit`, `vsplit`, `shell`)
+//!   and [`Shape`], the comparable form of a layout Rex reports.
+//! - [`ResurrectCmd`]: one run of the binary with a scrubbed environment.
+//!
+//! Safety: every child process gets an environment built from an allowlist,
+//! so `REX_BLOCK`, `REX_SESSION`, the real `REX_SERVER` and the user's XDG
+//! dirs never leak in. Harness `rex` calls always pass `-S <endpoint>` and
+//! `--autostart=false`. Nothing touches process-global state, so tests can run
+//! concurrently; each test starts its own server(s).
+//!
+//! Seams for later tests:
+//! - recorder: `TestEnv::builder().zshrc_line("source …").build()`;
+//! - custom init.lua: `env.server().init_lua("…").start()`;
+//! - stub `rex`: `env.resurrect(&server).path_prepend(stub_dir)`
+//!   (the harness itself always uses the real `rex`, see [`server::rex_bin`]).
+
+#![allow(dead_code, unused_imports)]
+
+pub mod env;
+pub mod fixture;
+pub mod resurrect;
+pub mod server;
+pub mod tempdir;
+pub mod zsh;
+
+pub use env::{STATE_DIR_VAR, TestEnv};
+pub use fixture::{FixtureSession, Layout, Shape, Window, block, hsplit, shell, vsplit, window};
+pub use resurrect::{ResurrectCmd, RunOutput};
+pub use server::{Server, SessionSummary};

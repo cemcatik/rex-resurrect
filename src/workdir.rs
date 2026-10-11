@@ -1,0 +1,63 @@
+//! A shell block's working directory.
+
+use std::ffi::OsString;
+use std::os::unix::ffi::OsStringExt;
+use std::path::PathBuf;
+
+use crate::error::{Error, Result};
+use crate::rex::Rex;
+use crate::rex::api::TerminalProcess;
+
+/// Where the block's shell is: what it last reported through the terminal
+/// `pwd` method, or, while it hasn't reported anything, the foreground
+/// process's directory from the terminal `process` method.
+pub fn working_directory(rex: &Rex, session_id: &str, block_id: &str) -> Result<PathBuf> {
+    let pwd = rex.terminal_pwd(session_id, block_id)?;
+    if let Some(path) = pwd.pwd.as_deref().and_then(path_from_file_url) {
+        return Ok(path);
+    }
+    let process = rex.terminal_process(session_id, block_id)?;
+    process_directory(&process).ok_or_else(|| {
+        Error::new(format!(
+            "block {block_id}: neither `pwd` nor `process` reports a working directory"
+        ))
+    })
+}
+
+/// The path in a `file://<host>/<path>` URL, percent-decoded. The host may be
+/// anything or empty; raw (unencoded) characters are kept as they are.
+fn path_from_file_url(url: &str) -> Option<PathBuf> {
+    let rest = url.strip_prefix("file://")?;
+    let path = &rest[rest.find('/')?..];
+    Some(PathBuf::from(OsString::from_vec(percent_decode(
+        path.as_bytes(),
+    ))))
+}
+
+fn percent_decode(bytes: &[u8]) -> Vec<u8> {
+    let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2]))
+        {
+            out.push(hi << 4 | lo);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    out
+}
+
+/// The foreground process's directory (a physical path), else home.
+fn process_directory(process: &TerminalProcess) -> Option<PathBuf> {
+    process
+        .foreground
+        .as_ref()
+        .and_then(|fg| fg.cwd.clone())
+        .or_else(|| process.home.clone())
+}
