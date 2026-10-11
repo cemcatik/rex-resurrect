@@ -76,6 +76,20 @@ fn list_shows_each_snapshot_newest_first_with_its_time_and_session_labels() {
     assert!(snapshots[0].time >= snapshots[1].time, "{snapshots:?}");
 }
 
+#[test]
+fn list_before_the_first_save_says_there_are_no_snapshots_without_needing_rex() {
+    let env = TestEnv::new();
+    let nowhere = format!("unix://{}/none.sock", env.root().display());
+
+    let out = env
+        .resurrect_at(&nowhere)
+        .arg("list")
+        .run()
+        .assert_success();
+
+    assert_eq!(out.stdout.trim(), "no snapshots yet", "{out}");
+}
+
 fn sorted_labels(server: &Server) -> Vec<String> {
     let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
     labels.sort();
@@ -259,4 +273,35 @@ fn a_dry_run_prints_what_would_be_created_and_skipped_and_creates_nothing() {
     // Nothing the dry run did stops a real restore.
     let real = env.restore(&server);
     assert_eq!(real.lines_starting("created").len(), 1, "{real}");
+}
+
+#[test]
+fn the_options_combine_into_a_dry_run_of_one_session_from_an_older_snapshot() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let one = session_in(&server, "zz-one", &a);
+    session_in(&server, "zz-two", &a);
+    env.save(&server);
+    let older = list(&env, &server)[0].id.clone();
+    server.kill_session(&one.id);
+    env.save(&server); // The latest snapshot holds only zz-two.
+    let before = server.sessions();
+    let restore = |args: &[&str]| env.resurrect(&server).arg("restore").args(args).run();
+
+    restore(&["--session", "zz-one", "--dry-run"]).assert_failure();
+    let dry = restore(&["--snapshot", &older, "--session", "zz-one", "--dry-run"]).assert_success();
+
+    let [created] = would_create(&dry)
+        .try_into()
+        .expect("one would-create line");
+    assert!(created.contains("zz-one"), "{dry}");
+    assert!(
+        dry.lines_starting("skipped").is_empty(),
+        "zz-two isn't selected: {dry}"
+    );
+    assert_eq!(server.sessions(), before, "a dry run creates no sessions");
+
+    restore(&["--snapshot", &older, "--session", "zz-one"]).assert_success();
+    assert_eq!(sorted_labels(&server), ["zz-one", "zz-two"]);
 }
