@@ -69,6 +69,60 @@ fn a_block_without_a_recorder_file_running_a_program_restores_with_its_command_l
 }
 
 #[test]
+fn a_shell_nested_in_a_block_without_a_recorder_file_counts_as_its_foreground_program() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let fixture = server.create_session("zz-nested", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+
+    // A nested shell sitting at its own prompt, with a program run inside it
+    // before: what's in the foreground at save time is the nested shell.
+    server.run(&fixture.id, block, "zsh");
+    server.wait_for_capture(&fixture.id, block, "the nested shell's prompt", |c| {
+        c.contains("% zsh\n") && c.trim_end().ends_with(" %")
+    });
+    server.run(&fixture.id, block, "echo zz-inside");
+    server.wait_for_capture(&fixture.id, block, "the echo", |c| {
+        c.contains("\nzz-inside")
+    });
+
+    env.save(&server);
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-nested");
+    let blocks = server.block_ids(&restored);
+    server.wait_for_typed(&restored, &blocks[0], "zsh");
+}
+
+#[test]
+fn a_block_with_a_recorder_file_uses_the_recorded_command_whatever_is_in_its_foreground() {
+    // No zsh recorder: the recorder file is written by hand, playing one.
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
+    let fixture = server.create_session("zz-recorded", &[window(hsplit(0.5, shell(&a), shell(&b)))]);
+    server.wait_for_pwds(&fixture);
+    let [running, idle] = [0, 1].map(|i| fixture.block_ids()[i]);
+    let tail = "tail -n 0 -f /dev/null";
+    server.run(&fixture.id, running, tail);
+    server.wait_for_foreground(&fixture.id, running, "tail");
+    let recorded = ["echo zz-recorded-running", "echo zz-recorded-idle"];
+    env.write_recorder_file(running, recorded[0]);
+    env.write_recorder_file(idle, recorded[1]);
+
+    env.save(&server);
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-recorded");
+    let blocks = server.block_ids(&restored);
+    server.wait_for_typed(&restored, &blocks[0], recorded[0]);
+    server.wait_for_typed(&restored, &blocks[1], recorded[1]);
+}
+
+#[test]
 fn a_block_without_a_recorder_file_sitting_at_a_prompt_restores_with_an_empty_prompt() {
     let env = TestEnv::new();
     let server = env.start_server();
