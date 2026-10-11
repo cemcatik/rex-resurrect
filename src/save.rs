@@ -15,6 +15,7 @@ use crate::snapshot::{SavedLayout, SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 use crate::timestamp::Timestamp;
+use crate::upkeep::{self, Live};
 
 #[derive(Debug, Default)]
 pub struct SaveOptions {}
@@ -68,9 +69,11 @@ pub fn save(
 ) -> Result<Saved> {
     let lineages = LineageMap::load(state)?;
     let local = capture::Local::read(rex, state)?;
+    let mut live = Live::new();
     let mut sessions = Vec::new();
     for summary in rex.list_sessions()? {
         let view = rex.view_session(&summary.session_id)?;
+        live.add(&view);
         let lineage = lineages.lineage_of(&view.session_id);
         let saved = capture::saved_session(rex, &local, &view, lineage)
             .with_context(|| format!("saving session {:?} ({})", view.label, view.session_id))?;
@@ -87,6 +90,12 @@ pub fn save(
         .validate()
         .with_context(|| "the snapshot failed validation, so nothing was written")?;
     let path = SnapshotStore::new(state).write(&snapshot, taken_at, retention)?;
+    upkeep::forget_what_is_not_live(state, &live).with_context(|| {
+        format!(
+            "saved {}, but then failed to forget blocks and sessions that are gone",
+            path.display()
+        )
+    })?;
     Ok(Saved::Snapshot {
         path,
         sessions: snapshot.sessions.len(),
