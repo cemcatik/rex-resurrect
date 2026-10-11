@@ -66,7 +66,7 @@ pub fn save(
     _options: &SaveOptions,
 ) -> Result<Saved> {
     let lineages = LineageMap::load(state)?;
-    let local = capture::Local::read(rex)?;
+    let local = capture::Local::read(rex, state)?;
     let mut sessions = Vec::new();
     for summary in rex.list_sessions()? {
         let view = rex.view_session(&summary.session_id)?;

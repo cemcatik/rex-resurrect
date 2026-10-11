@@ -6,7 +6,17 @@
 //! slow, can stop at interactive prompts (oh-my-zsh's update question), and
 //! would record test commands into the user's history.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// The zsh recorder plugin shipped at the repo root.
+pub fn recorder_plugin() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("rex-resurrect.plugin.zsh")
+}
+
+/// `path` single-quoted for a zsh command line.
+pub fn quote(path: &Path) -> String {
+    format!("'{}'", path.to_str().unwrap().replace('\'', r"'\''"))
+}
 
 /// Loaded by every fixture block before any extra lines:
 /// - no history file, so nothing reaches the user's history;

@@ -9,6 +9,7 @@ mod instance;
 mod label;
 mod lineage;
 mod list;
+mod recorder;
 mod restore;
 mod retention;
 mod rex;

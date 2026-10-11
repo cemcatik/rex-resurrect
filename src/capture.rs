@@ -5,25 +5,31 @@ use std::path::PathBuf;
 use crate::error::{Error, Result};
 use crate::label;
 use crate::lineage::Lineage;
+use crate::recorder::RecorderFiles;
 use crate::rex::Rex;
 use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, WindowView};
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedSplit, SavedWindow};
+use crate::state::StateDir;
 use crate::workdir;
 
-/// What save compares blocks against: the local server and home directory.
+/// What save compares blocks against and reads about them on this machine:
+/// the local server, the home directory and the recorder files.
 pub struct Local {
     /// The local server's host. A block with a different `host_id` is a
     /// remote block.
     pub host_id: String,
     /// Where a block with no working directory to save comes back.
     pub home: PathBuf,
+    /// Each local shell block's last command.
+    pub recorder: RecorderFiles,
 }
 
 impl Local {
-    pub fn read(rex: &Rex) -> Result<Local> {
+    pub fn read(rex: &Rex, state: &StateDir) -> Result<Local> {
         Ok(Local {
             host_id: rex.server_status()?.host_id,
             home: workdir::home()?,
+            recorder: RecorderFiles::new(state),
         })
     }
 
@@ -45,6 +51,7 @@ impl Local {
         SavedBlock {
             label: None,
             working_directory: self.home.clone(),
+            last_command: None,
         }
     }
 }
@@ -117,7 +124,8 @@ fn saved_layout(
     }
 }
 
-/// A local shell block in its working directory. A non-terminal block has no
+/// A local shell block in its working directory, with its recorder file as
+/// the source of truth for its last command. A non-terminal block has no
 /// working directory, and a remote block's is on another host, so either is
 /// saved as a plain shell in the home directory.
 fn saved_block(
@@ -132,5 +140,6 @@ fn saved_block(
     Ok(SavedBlock {
         label: label::user_set_block_label(block).map(str::to_owned),
         working_directory: workdir::working_directory(rex, &session.session_id, &block.block_id)?,
+        last_command: local.recorder.last_command(&block.block_id)?,
     })
 }
