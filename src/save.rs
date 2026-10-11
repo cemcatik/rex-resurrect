@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use crate::capture;
 use crate::error::{Context, Result};
+use crate::instance::RestoreLock;
 use crate::lineage::LineageMap;
 use crate::restore;
 use crate::rex::Rex;
@@ -26,10 +27,14 @@ pub struct Saved {
 /// yet, so that a save on a freshly started server can't replace the latest
 /// snapshot with a near-empty one. Still saves if some sessions failed to
 /// restore, but then exits non-zero.
+///
+/// Holds the restore lock throughout: a save that finds a restore running
+/// waits for it rather than saving a half-restored server.
 pub fn run(options: &SaveOptions) -> Result<ExitCode> {
     let rex = Rex::from_env();
     let state = StateDir::from_env()?;
-    let restored_first = restore::restore_unrestored_instance(&rex, &state)?;
+    let lock = RestoreLock::acquire(&state)?;
+    let restored_first = restore::restore_unrestored_instance(&rex, &state, &lock)?;
     if let Some(report) = &restored_first {
         println!("restoring first: this server instance hasn't been restored yet");
         let _ = report.print(&mut std::io::stdout().lock());

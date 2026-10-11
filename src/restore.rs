@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use crate::create;
 use crate::error::{Context, Result};
-use crate::instance;
+use crate::instance::RestoreLock;
 use crate::lineage::{Lineage, LineageMap};
 use crate::rex::Rex;
 use crate::state::StateDir;
@@ -76,7 +76,9 @@ impl RestoreReport {
 }
 
 pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
-    let report = restore(&Rex::from_env(), &StateDir::from_env()?, options)?;
+    let state = StateDir::from_env()?;
+    let lock = RestoreLock::acquire(&state)?;
+    let report = restore(&Rex::from_env(), &state, &lock, options)?;
     let _ = report.print(&mut std::io::stdout().lock());
     Ok(if report.failed() > 0 {
         ExitCode::FAILURE
@@ -87,21 +89,30 @@ pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
 
 /// Restores into the server's current instance, unless rex-resurrect already
 /// has: `None` then. This is how `save` treats an unrestored server instance.
-pub fn restore_unrestored_instance(rex: &Rex, state: &StateDir) -> Result<Option<RestoreReport>> {
+pub fn restore_unrestored_instance(
+    rex: &Rex,
+    state: &StateDir,
+    lock: &RestoreLock,
+) -> Result<Option<RestoreReport>> {
     let instance_id = rex.server_status()?.instance_id;
-    if instance::last_restored(state)?.as_deref() == Some(instance_id.as_str()) {
+    if lock.last_restored()?.as_deref() == Some(instance_id.as_str()) {
         return Ok(None);
     }
-    restore(rex, state, &RestoreOptions::default()).map(Some)
+    restore(rex, state, lock, &RestoreOptions::default()).map(Some)
 }
 
 /// Restores the latest snapshot and, once that has finished, records the
 /// server instance it restored into. Sessions that failed to create don't
 /// stop it from finishing.
-pub fn restore(rex: &Rex, state: &StateDir, options: &RestoreOptions) -> Result<RestoreReport> {
+pub fn restore(
+    rex: &Rex,
+    state: &StateDir,
+    lock: &RestoreLock,
+    options: &RestoreOptions,
+) -> Result<RestoreReport> {
     let instance_id = rex.server_status()?.instance_id;
     let report = restore_sessions(rex, state, options)?;
-    instance::record_restored(state, &instance_id)?;
+    lock.record_restored(&instance_id)?;
     Ok(report)
 }
 
