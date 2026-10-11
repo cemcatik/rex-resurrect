@@ -1,6 +1,7 @@
 //! rex-resurrect: save Rex sessions and recreate them after the Rex server
 //! stops. Talks to Rex only through the `rex` CLI (see `rex`).
 
+mod autosave;
 mod capture;
 mod cli;
 mod create;
@@ -14,6 +15,7 @@ mod restore;
 mod retention;
 mod rex;
 mod save;
+mod scheduler;
 mod snapshot;
 mod state;
 mod store;
@@ -36,6 +38,7 @@ fn main() -> ExitCode {
         Command::Save(options) => save::run(&options),
         Command::Restore(options) => restore::run(&options),
         Command::List(options) => list::run(&options),
+        Command::Autosave(command) => autosave::run(&command),
         Command::Help => {
             print!("{}", cli::USAGE);
             Ok(ExitCode::SUCCESS)

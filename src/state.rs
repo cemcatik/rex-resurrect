@@ -35,6 +35,10 @@ impl StateDir {
             })
     }
 
+    pub fn path(&self) -> &Path {
+        &self.root
+    }
+
     /// A path inside the state directory.
     pub fn join(&self, name: impl AsRef<Path>) -> PathBuf {
         self.root.join(name)
