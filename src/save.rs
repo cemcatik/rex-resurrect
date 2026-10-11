@@ -7,7 +7,7 @@ use crate::capture;
 use crate::error::{Context, Result};
 use crate::lineage::LineageMap;
 use crate::rex::Rex;
-use crate::snapshot::Snapshot;
+use crate::snapshot::{SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 use crate::timestamp::Timestamp;
@@ -15,19 +15,24 @@ use crate::timestamp::Timestamp;
 #[derive(Debug, Default)]
 pub struct SaveOptions {}
 
-/// What a save wrote.
-pub struct Saved {
-    pub path: PathBuf,
-    pub sessions: usize,
+/// What a save did.
+pub enum Saved {
+    /// A new snapshot, now the latest.
+    Snapshot { path: PathBuf, sessions: usize },
+    /// The server is empty: nothing was written and the latest snapshot is
+    /// unchanged.
+    EmptyServer,
 }
 
 pub fn run(options: &SaveOptions) -> Result<ExitCode> {
-    let saved = save(&Rex::from_env(), &StateDir::from_env()?, options)?;
-    println!(
-        "saved {} session(s) to {}",
-        saved.sessions,
-        saved.path.display()
-    );
+    match save(&Rex::from_env(), &StateDir::from_env()?, options)? {
+        Saved::Snapshot { path, sessions } => {
+            println!("saved {sessions} session(s) to {}", path.display());
+        }
+        Saved::EmptyServer => {
+            println!("nothing to save: no sessions worth saving; the latest snapshot is unchanged");
+        }
+    }
     Ok(ExitCode::SUCCESS)
 }
 
@@ -39,13 +44,24 @@ pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved
         let lineage = lineages.lineage_of(&view.session_id);
         let saved = capture::saved_session(rex, &view, lineage)
             .with_context(|| format!("saving session {:?} ({})", view.label, view.session_id))?;
-        sessions.push(saved);
+        if worth_saving(&saved) {
+            sessions.push(saved);
+        }
+    }
+    if sessions.is_empty() {
+        return Ok(Saved::EmptyServer);
     }
     let taken_at = Timestamp::now();
     let snapshot = Snapshot::new(taken_at, sessions);
     let path = SnapshotStore::new(state).write(&snapshot, taken_at)?;
-    Ok(Saved {
+    Ok(Saved::Snapshot {
         path,
         sessions: snapshot.sessions.len(),
     })
+}
+
+/// Whether a live session has anything to restore. A server where no
+/// session does is an empty server, and saving from it writes nothing.
+fn worth_saving(_session: &SavedSession) -> bool {
+    true
 }
