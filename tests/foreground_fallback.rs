@@ -30,18 +30,24 @@ fn a_block_without_a_recorder_file_running_a_program_restores_with_its_command_l
 {
     let env = TestEnv::new();
     let server = env.start_server();
-    let a = env.mkdir("a");
-    let fixture = server.create_session("zz-fallback", &[window(shell(&a))]);
+    let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
+    let fixture = server.create_session(
+        "zz-fallback",
+        &[window(hsplit(0.5, shell(&a), non_login_shell(&b)))],
+    );
     server.wait_for_pwds(&fixture);
-    let block = fixture.block_ids()[0];
+    let [login, non_login] = [0, 1].map(|i| fixture.block_ids()[i]);
 
     // A long-lived program with a visible side effect as it starts: `tee`
     // creates its file, then waits for input.
     let marker = a.join("zz-marker");
     let tee = format!("tee {}", marker.display());
-    server.run(&fixture.id, block, &tee);
+    server.run(&fixture.id, login, &tee);
     wait_for_file(&marker);
-    server.wait_for_foreground(&fixture.id, block, "tee");
+    server.wait_for_foreground(&fixture.id, login, "tee");
+    let tail = "tail -n 0 -f /dev/null";
+    server.run(&fixture.id, non_login, tail);
+    server.wait_for_foreground(&fixture.id, non_login, "tail");
 
     env.save(&server);
     server.kill_session(&fixture.id);
@@ -51,11 +57,14 @@ fn a_block_without_a_recorder_file_running_a_program_restores_with_its_command_l
     let restored = server.the_session_labelled("zz-fallback");
     let blocks = server.block_ids(&restored);
     server.wait_for_typed(&restored, &blocks[0], &tee);
-    assert_eq!(
-        server.foreground(&restored, &blocks[0]).as_deref(),
-        Some("zsh"),
-        "the restored shell is idle"
-    );
+    server.wait_for_typed(&restored, &blocks[1], tail);
+    for block in &blocks {
+        assert_eq!(
+            server.foreground(&restored, block).as_deref(),
+            Some("zsh"),
+            "the restored shell is idle"
+        );
+    }
     assert!(!marker.exists(), "the typed command must not have run");
 }
 

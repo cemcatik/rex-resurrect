@@ -190,13 +190,24 @@ pub struct TerminalProcess {
 
 impl TerminalProcess {
     /// The process in the terminal's foreground, unless it's the block's
-    /// own shell.
+    /// own shell: a program the shell runs, or a shell nested in it.
+    ///
+    /// The block's shell is its outermost process other than `login`, the
+    /// wrapper Rex starts login shells through. `ancestors` reach up to the
+    /// block's first process (`login`, or the shell itself when Rex starts it
+    /// directly), so a foreground process with an ancestor other than `login`
+    /// isn't the block's shell.
     pub fn foreground_program(&self) -> Option<&ProcessInfo> {
-        self.foreground
-            .as_ref()
-            .filter(|_| self.ancestors.len() > 1)
+        self.foreground.as_ref().filter(|_| {
+            self.ancestors
+                .iter()
+                .any(|ancestor| ancestor.name != LOGIN)
+        })
     }
 }
+
+/// The process Rex starts a block's login shell through.
+const LOGIN: &str = "login";
 
 #[derive(Debug, Deserialize)]
 pub struct ProcessInfo {
