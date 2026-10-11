@@ -54,6 +54,22 @@ fn a_save_removes_recorder_files_for_blocks_that_are_not_live_and_keeps_the_othe
 }
 
 #[test]
+fn a_save_that_fails_to_write_its_snapshot_removes_no_recorder_files() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let (_live, live_block) = session_with_one_block(&env, &server, "zz-live");
+    let (gone, gone_block) = session_with_one_block(&env, &server, "zz-gone");
+    env.write_recorder_file(&live_block, "echo zz-live");
+    env.write_recorder_file(&gone_block, "echo zz-gone");
+    server.kill_session(&gone);
+    // A file where the snapshots directory goes: writing the snapshot fails.
+    std::fs::write(env.state_dir().join("snapshots"), "").unwrap();
+
+    env.resurrect(&server).arg("save").run().assert_failure();
+    assert!(recorder_file(&env, &gone_block).exists());
+}
+
+#[test]
 fn a_save_keeps_the_recorder_file_of_a_floating_block() {
     let env = TestEnv::new();
     let server = env.start_server();
