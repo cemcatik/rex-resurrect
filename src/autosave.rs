@@ -69,7 +69,7 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// The scheduled save's environment. A scheduler starts its jobs with
+/// The autosave job's environment. A scheduler starts its jobs with
 /// almost none (launchd: no `REX_SERVER`, a bare `PATH`, nothing from the
 /// user's shell), so the job gets what `save` depends on, as install finds
 /// it:

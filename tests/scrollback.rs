@@ -313,7 +313,7 @@ fn an_untouched_sessions_scrollback_is_not_kept() {
 }
 
 /// Also measures how long the save takes (shown with `--nocapture`), to
-/// check that scheduled saves stay fast with a long scrollback.
+/// check that autosaves stay fast with a long scrollback.
 #[test]
 fn a_block_with_50000_lines_of_scrollback_comes_back_in_full() {
     let env = TestEnv::with_recorder();

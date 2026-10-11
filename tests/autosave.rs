@@ -290,7 +290,7 @@ fn installing_twice_leaves_exactly_one_agent_running_with_the_latest_settings() 
 }
 
 #[test]
-fn a_scheduled_save_saves_the_server_and_state_install_ran_with_though_launchd_gives_neither() {
+fn an_autosave_saves_the_server_and_state_install_ran_with_though_launchd_gives_neither() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
     let server = env.start_server();
@@ -311,7 +311,7 @@ fn a_scheduled_save_saves_the_server_and_state_install_ran_with_though_launchd_g
 }
 
 #[test]
-fn installed_outside_rex_a_scheduled_save_saves_the_rex_apps_server() {
+fn installed_outside_rex_autosave_saves_the_rex_apps_server() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
     let server = env.start_server();
@@ -347,7 +347,7 @@ fn installed_outside_rex_a_scheduled_save_saves_the_rex_apps_server() {
 }
 
 #[test]
-fn a_successful_scheduled_save_is_silent() {
+fn a_successful_autosave_is_silent() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
     let server = env.start_server();
@@ -366,7 +366,7 @@ fn a_successful_scheduled_save_is_silent() {
 }
 
 #[test]
-fn a_scheduled_save_while_rex_is_not_running_logs_the_failure_and_starts_no_server() {
+fn an_autosave_while_rex_is_not_running_logs_the_failure_and_starts_no_server() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
     let endpoint = {
@@ -383,7 +383,7 @@ fn a_scheduled_save_while_rex_is_not_running_logs_the_failure_and_starts_no_serv
 
     if let Some(pid) = env.server_pid_at(&endpoint) {
         let _ = Command::new("kill").arg(pid.to_string()).status();
-        panic!("the scheduled save started a Rex server (pid {pid}) at {endpoint}");
+        panic!("the autosave started a Rex server (pid {pid}) at {endpoint}");
     }
     job.assert_failure();
     let entries = env.log_entries();
@@ -543,7 +543,7 @@ fn install_hands_the_programs_whose_blocks_get_no_scrollback_on_to_autosave() {
 }
 
 #[test]
-fn scheduled_saves_keep_as_many_snapshots_as_install_was_told_to() {
+fn autosaves_keep_as_many_snapshots_as_install_was_told_to() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
     let server = env.start_server();
