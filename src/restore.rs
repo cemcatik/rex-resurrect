@@ -10,6 +10,7 @@ use crate::lineage::{Lineage, LineageMap};
 use crate::rex::Rex;
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
+use crate::workdir;
 
 #[derive(Debug, Default)]
 pub struct RestoreOptions {}
@@ -92,6 +93,7 @@ pub fn restore(rex: &Rex, state: &StateDir, _options: &RestoreOptions) -> Result
     let Some(snapshot) = SnapshotStore::new(state).read_latest()? else {
         return Ok(RestoreReport::default());
     };
+    let home = workdir::home()?;
     let live_sessions = rex.list_sessions()?;
     let mut lineages = LineageMap::load(state)?;
     let mut live: HashMap<Lineage, String> = live_sessions
@@ -113,7 +115,7 @@ pub fn restore(rex: &Rex, state: &StateDir, _options: &RestoreOptions) -> Result
             });
             continue;
         }
-        match rex.create_session(&create::create_request(saved)) {
+        match rex.create_session(&create::create_request(saved, &home)) {
             Ok(created) => {
                 lineages.record(&created.session_id, saved.lineage.clone());
                 lineages.save().with_context(|| {
