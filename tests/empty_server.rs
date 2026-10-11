@@ -6,12 +6,6 @@ mod common;
 use common::server::wait_for;
 use common::*;
 
-fn sorted_labels(server: &Server) -> Vec<String> {
-    let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
-    labels.sort();
-    labels
-}
-
 /// Types `exit` in the session's only shell and waits until Rex reports the
 /// session with no windows. Rex keeps such a session live.
 fn exit_last_shell(server: &Server, session: &FixtureSession) {
@@ -107,5 +101,5 @@ fn a_session_whose_last_shell_exited_is_left_out_of_the_snapshot() {
     server.kill_session(&emptied.id);
 
     env.restore(&server);
-    assert_eq!(sorted_labels(&server), ["zz-kept"]);
+    assert_eq!(server.sorted_labels(), ["zz-kept"]);
 }

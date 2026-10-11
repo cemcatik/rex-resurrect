@@ -14,7 +14,7 @@ const KEEP_VAR: &str = "REX_RESURRECT_KEEP";
 
 /// The snapshots `rex-resurrect list` shows, newest first, each as its
 /// session labels (`zz-1, zz-2`).
-fn listed(env: &TestEnv, server: &Server) -> Vec<String> {
+fn listed_labels(env: &TestEnv, server: &Server) -> Vec<String> {
     let out = env.resurrect(server).arg("list").run().assert_success();
     out.stdout
         .lines()
@@ -27,12 +27,6 @@ fn listed(env: &TestEnv, server: &Server) -> Vec<String> {
                 .to_string()
         })
         .collect()
-}
-
-fn sorted_labels(server: &Server) -> Vec<String> {
-    let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
-    labels.sort();
-    labels
 }
 
 #[test]
@@ -82,13 +76,16 @@ fn only_the_newest_snapshots_are_kept_and_latest_is_the_newest() {
         fixtures.push(fixture);
     }
 
-    assert_eq!(listed(&env, &server), ["zz-1, zz-2, zz-3", "zz-1, zz-2"]);
+    assert_eq!(
+        listed_labels(&env, &server),
+        ["zz-1, zz-2, zz-3", "zz-1, zz-2"]
+    );
 
     for fixture in &fixtures {
         server.kill_session(&fixture.id);
     }
     env.restore(&server);
-    assert_eq!(sorted_labels(&server), ["zz-1", "zz-2", "zz-3"]);
+    assert_eq!(server.sorted_labels(), ["zz-1", "zz-2", "zz-3"]);
 }
 
 #[test]
@@ -102,7 +99,7 @@ fn ten_snapshots_are_kept_by_default() {
         env.save(&server);
     }
 
-    assert_eq!(listed(&env, &server).len(), 10);
+    assert_eq!(listed_labels(&env, &server).len(), 10);
 }
 
 #[test]
@@ -122,5 +119,5 @@ fn a_keep_count_that_is_not_a_positive_number_fails_save_and_writes_nothing() {
         assert!(out.stderr.contains(KEEP_VAR), "{out}");
     }
 
-    assert_eq!(listed(&env, &server), Vec::<String>::new());
+    assert_eq!(listed_labels(&env, &server), Vec::<String>::new());
 }

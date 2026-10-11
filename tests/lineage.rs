@@ -4,12 +4,6 @@ mod common;
 
 use common::*;
 
-fn sorted_labels(server: &Server) -> Vec<String> {
-    let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
-    labels.sort();
-    labels
-}
-
 #[test]
 fn restoring_twice_creates_no_duplicates() {
     let env = TestEnv::new();
@@ -37,7 +31,7 @@ fn restoring_twice_creates_no_duplicates() {
     let second = env.restore(&server);
     assert!(second.lines_starting("created").is_empty(), "{second}");
     assert_eq!(second.lines_starting("skipped").len(), 2, "{second}");
-    assert_eq!(sorted_labels(&server), ["zz-one", "zz-two"]);
+    assert_eq!(server.sorted_labels(), ["zz-one", "zz-two"]);
 }
 
 #[test]
@@ -88,7 +82,7 @@ fn sessions_sharing_a_label_are_both_restored_and_a_renamed_one_is_still_recogni
     server.rename_session(&twins[0], "zz-renamed");
     let again = env.restore(&server);
     assert!(again.lines_starting("created").is_empty(), "{again}");
-    assert_eq!(sorted_labels(&server), ["zz-renamed", "zz-twin"]);
+    assert_eq!(server.sorted_labels(), ["zz-renamed", "zz-twin"]);
 }
 
 #[test]

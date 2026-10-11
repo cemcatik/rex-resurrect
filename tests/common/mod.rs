@@ -13,8 +13,12 @@
 //!   and [`Shape`], the comparable form of a layout Rex reports.
 //! - [`ResurrectCmd`]: one run of the binary with a scrubbed environment.
 //! - [`files`]: the state directory's files as seen from outside (modes,
-//!   total size), for privacy and retention checks that don't depend on
-//!   file names or formats.
+//!   total size, whether a directory holds anything), for privacy and
+//!   retention checks that don't depend on file names or formats.
+//!
+//! Shared steps and checks: [`TestEnv::saved_on_an_earlier_server`] (a
+//! snapshot taken before a restart), [`TestEnv::listed`],
+//! [`Server::sorted_labels`], [`Server::assert_empty_prompt`].
 //!
 //! Safety: every child process gets an environment built from an allowlist,
 //! so `REX_BLOCK`, `REX_SESSION`, the real `REX_SERVER` and the user's XDG

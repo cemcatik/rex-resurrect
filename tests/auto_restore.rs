@@ -26,23 +26,6 @@ fn hook(env: &TestEnv) -> String {
         .stdout
 }
 
-fn sorted_labels(server: &Server) -> Vec<String> {
-    let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
-    labels.sort();
-    labels
-}
-
-/// Saves one session per label, each a shell in its own directory, on a
-/// server that then stops.
-fn saved_on_an_earlier_server(env: &TestEnv, labels: &[&str]) {
-    let server = env.start_server();
-    for label in labels {
-        let fixture = server.create_session(label, &[window(shell(env.mkdir(label)))]);
-        server.wait_for_pwds(&fixture);
-    }
-    env.save(&server);
-}
-
 /// The log's auto-restore entries, once there are at least `n` (each
 /// auto-restore run writes its outcome last, so this waits for `n` runs to
 /// finish).
@@ -82,7 +65,7 @@ fn a_server_whose_init_lua_has_the_hook_restores_the_latest_snapshot_when_it_sta
 #[test]
 fn the_hook_restores_into_the_server_running_it_even_when_rex_server_names_another() {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-proj"]);
+    env.saved_on_an_earlier_server(&["zz-proj"]);
     // A server started from inside another server's block inherits that
     // block's REX_SERVER, and so does its init.lua.
     let other = env.start_server();
@@ -93,7 +76,7 @@ fn the_hook_restores_into_the_server_running_it_even_when_rex_server_names_anoth
         .start();
     let entries = wait_for_auto_restores(&env, 1);
 
-    assert_eq!(sorted_labels(&server), ["zz-proj"]);
+    assert_eq!(server.sorted_labels(), ["zz-proj"]);
     assert_eq!(other.sessions(), [], "restored into the other server");
     assert!(entries[0].contains(server.endpoint()), "{}", entries[0]);
 }
@@ -101,7 +84,7 @@ fn the_hook_restores_into_the_server_running_it_even_when_rex_server_names_anoth
 #[test]
 fn a_config_reload_does_not_restore_again_even_after_a_restored_session_was_killed() {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-proj"]);
+    env.saved_on_an_earlier_server(&["zz-proj"]);
     let server = env.server().init_lua(hook(&env)).start();
     wait_for_auto_restores(&env, 1);
     server.kill_session(&server.the_session_labelled("zz-proj"));
@@ -142,7 +125,7 @@ fn an_auto_restore_in_which_every_session_failed_does_not_count_as_restoring_the
 #[test]
 fn a_repeated_trigger_creates_no_duplicates() {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-one", "zz-two"]);
+    env.saved_on_an_earlier_server(&["zz-one", "zz-two"]);
     // Both background runs wait for the server and then restore at once.
     let server = env
         .server()
@@ -150,7 +133,7 @@ fn a_repeated_trigger_creates_no_duplicates() {
         .start();
     let entries = wait_for_auto_restores(&env, 2);
 
-    assert_eq!(sorted_labels(&server), ["zz-one", "zz-two"]);
+    assert_eq!(server.sorted_labels(), ["zz-one", "zz-two"]);
     // One run restored; the other waited for it, then found this server
     // instance restored into.
     let mut outcomes: Vec<&str> = entries
@@ -169,7 +152,7 @@ fn a_repeated_trigger_creates_no_duplicates() {
 fn a_trigger_while_a_restore_is_running_creates_no_duplicates() {
     let env = TestEnv::new();
     let labels = ["zz-one", "zz-three", "zz-two"];
-    saved_on_an_earlier_server(&env, &labels);
+    env.saved_on_an_earlier_server(&labels);
     let server = env.start_server();
     let slow = common::stub::slow_rex(&env, "session.create", 0.5);
     let restore = env
@@ -188,14 +171,14 @@ fn a_trigger_while_a_restore_is_running_creates_no_duplicates() {
 
     let restored = restore.wait().assert_success();
     assert_eq!(restored.lines_starting("created").len(), 3, "{restored}");
-    assert_eq!(sorted_labels(&server), labels);
+    assert_eq!(server.sorted_labels(), labels);
     assert!(entries[0].contains("already restored"), "{entries:#?}");
 }
 
 #[test]
 fn if_the_server_never_becomes_ready_the_background_restore_gives_up_and_logs_it() {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-proj"]);
+    env.saved_on_an_earlier_server(&["zz-proj"]);
     let go = env.root().join("go");
     let mut server = env
         .server()
@@ -279,13 +262,13 @@ fn the_printed_hook_restores_from_the_state_directory_it_was_printed_with() {
         log.contains(" auto-restore").then_some(())
     });
 
-    assert_eq!(sorted_labels(&server), ["zz-proj"]);
+    assert_eq!(server.sorted_labels(), ["zz-proj"]);
 }
 
 #[test]
 fn rex_config_check_runs_the_hook_but_nothing_is_restored() {
     let env = TestEnv::new();
-    saved_on_an_earlier_server(&env, &["zz-proj"]);
+    env.saved_on_an_earlier_server(&["zz-proj"]);
     let server = env.start_server();
     let config = env.root().join("hook.lua");
     std::fs::write(&config, hook(&env)).unwrap();

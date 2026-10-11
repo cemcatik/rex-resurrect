@@ -228,6 +228,28 @@ impl TestEnv {
         self.resurrect(server).arg("restore").run().assert_success()
     }
 
+    /// What `rex-resurrect list` prints: one line per snapshot.
+    pub fn listed(&self, server: &Server) -> String {
+        self.resurrect(server)
+            .arg("list")
+            .run()
+            .assert_success()
+            .stdout
+    }
+
+    /// Saves one session per label, each a shell in its own directory, on a
+    /// server that then stops. The next server started from this `TestEnv`
+    /// is a restart.
+    pub fn saved_on_an_earlier_server(&self, labels: &[&str]) {
+        let server = self.start_server();
+        for label in labels {
+            let fixture =
+                server.create_session(label, &[super::window(super::shell(self.mkdir(label)))]);
+            server.wait_for_pwds(&fixture);
+        }
+        self.save(&server);
+    }
+
     pub(crate) fn root_handle(&self) -> Arc<TempDir> {
         Arc::clone(&self.root)
     }

@@ -20,6 +20,11 @@ pub fn accessible_to_others(dir: &Path) -> Vec<String> {
     found
 }
 
+/// Whether `dir` exists and holds anything.
+pub fn has_entries(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())
+}
+
 /// The total size of the files under `dir`, in bytes.
 pub fn disk_usage(dir: &Path) -> u64 {
     walk(dir)

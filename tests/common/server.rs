@@ -254,6 +254,13 @@ impl Server {
             .collect()
     }
 
+    /// Every live session's label, sorted.
+    pub fn sorted_labels(&self) -> Vec<String> {
+        let mut labels: Vec<String> = self.sessions().into_iter().map(|s| s.label).collect();
+        labels.sort();
+        labels
+    }
+
     /// IDs of the live sessions labelled `label`, in creation order.
     pub fn session_ids_labelled(&self, label: &str) -> Vec<String> {
         self.sessions()
@@ -384,6 +391,15 @@ impl Server {
             last_line(capture).ends_with(" %")
         });
         last_line(&capture)
+    }
+
+    /// Waits for an empty prompt, then checks nothing gets typed after it
+    /// either.
+    pub fn assert_empty_prompt(&self, session_id: &str, block_id: &str) {
+        self.wait_for_empty_prompt(session_id, block_id);
+        std::thread::sleep(Duration::from_millis(500));
+        let line = self.prompt_line(session_id, block_id);
+        assert!(line.ends_with(" %"), "expected an empty prompt: {line:?}");
     }
 
     /// The block's working directory as its shell last reported it, decoded,

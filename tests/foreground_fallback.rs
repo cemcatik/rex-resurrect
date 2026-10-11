@@ -5,19 +5,10 @@
 mod common;
 
 use std::path::Path;
-use std::time::Duration;
 
 use common::server::wait_for_file;
 use common::*;
 use serde_json::json;
-
-/// Waits for an empty prompt, then checks nothing gets typed after it either.
-fn assert_empty_prompt(server: &Server, session: &str, block: &str) {
-    server.wait_for_empty_prompt(session, block);
-    std::thread::sleep(Duration::from_millis(500));
-    let line = server.prompt_line(session, block);
-    assert!(line.ends_with(" %"), "expected an empty prompt: {line:?}");
-}
 
 /// A shell block Rex starts without `login`: its shell is the block's first
 /// process rather than `login`'s child.
@@ -140,6 +131,6 @@ fn a_block_without_a_recorder_file_sitting_at_a_prompt_restores_with_an_empty_pr
 
     let restored = server.the_session_labelled("zz-idle");
     for block in server.block_ids(&restored) {
-        assert_empty_prompt(&server, &restored, &block);
+        server.assert_empty_prompt(&restored, &block);
     }
 }

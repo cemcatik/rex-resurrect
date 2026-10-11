@@ -24,12 +24,6 @@ fn shell_in_home() -> Layout {
     block(json!({}))
 }
 
-fn sorted_labels(server: &Server) -> Vec<String> {
-    let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
-    labels.sort();
-    labels
-}
-
 fn kill_every_session(server: &Server) {
     for session in server.sessions() {
         server.kill_session(&session.id);
@@ -42,16 +36,7 @@ fn labels_saved(env: &TestEnv, server: &Server) -> Vec<String> {
     env.save(server);
     kill_every_session(server);
     env.restore(server);
-    sorted_labels(server)
-}
-
-/// What `rex-resurrect list` prints: one line per snapshot.
-fn listed(env: &TestEnv, server: &Server) -> String {
-    env.resurrect(server)
-        .arg("list")
-        .run()
-        .assert_success()
-        .stdout
+    server.sorted_labels()
 }
 
 #[test]
@@ -194,15 +179,15 @@ fn save_on_a_server_holding_only_untouched_sessions_writes_nothing() {
     server.rename_session(&renamed.id, "zz-renamed");
     server.wait_for_pwds(&untouched);
     server.wait_for_pwds(&renamed);
-    let snapshots = listed(&env, &server);
+    let snapshots = env.listed(&server);
 
     env.save(&server);
 
-    assert_eq!(listed(&env, &server), snapshots, "no new snapshot");
+    assert_eq!(env.listed(&server), snapshots, "no new snapshot");
     kill_every_session(&server);
     env.restore(&server);
     assert_eq!(
-        sorted_labels(&server),
+        server.sorted_labels(),
         ["zz-kept"],
         "the earlier snapshot is still the latest"
     );
@@ -238,7 +223,7 @@ fn a_session_whose_only_content_is_a_last_command_stays_saved_through_a_restore(
 
     let third = env.start_server();
     env.restore(&third);
-    assert_eq!(sorted_labels(&third), ["zz-last-command", "zz-marker"]);
+    assert_eq!(third.sorted_labels(), ["zz-last-command", "zz-marker"]);
     let restored = third.the_session_labelled("zz-last-command");
     third.wait_for_typed(&restored, &third.block_ids(&restored)[0], "make test");
 }

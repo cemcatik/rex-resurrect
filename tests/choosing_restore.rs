@@ -90,12 +90,6 @@ fn list_before_the_first_save_says_there_are_no_snapshots_without_needing_rex() 
     assert_eq!(out.stdout.trim(), "no snapshots yet", "{out}");
 }
 
-fn sorted_labels(server: &Server) -> Vec<String> {
-    let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
-    labels.sort();
-    labels
-}
-
 #[test]
 fn restore_can_use_an_older_snapshot_chosen_from_list() {
     let env = TestEnv::new();
@@ -117,7 +111,7 @@ fn restore_can_use_an_older_snapshot_chosen_from_list() {
         .assert_success();
 
     assert_eq!(out.lines_starting("created").len(), 2, "{out}");
-    assert_eq!(sorted_labels(&server), ["zz-gone", "zz-kept"]);
+    assert_eq!(server.sorted_labels(), ["zz-gone", "zz-kept"]);
 }
 
 #[test]
@@ -195,7 +189,7 @@ fn a_single_session_restore_creates_only_the_saved_sessions_with_that_label() {
         .assert_success();
 
     assert_eq!(out.lines_starting("created").len(), 2, "{out}");
-    assert_eq!(sorted_labels(&server), ["zz-twin", "zz-twin"]);
+    assert_eq!(server.sorted_labels(), ["zz-twin", "zz-twin"]);
     let mut shapes: Vec<Vec<Shape>> = server
         .session_ids_labelled("zz-twin")
         .iter()
@@ -303,5 +297,5 @@ fn the_options_combine_into_a_dry_run_of_one_session_from_an_older_snapshot() {
     assert_eq!(server.sessions(), before, "a dry run creates no sessions");
 
     restore(&["--snapshot", &older, "--session", "zz-one"]).assert_success();
-    assert_eq!(sorted_labels(&server), ["zz-one", "zz-two"]);
+    assert_eq!(server.sorted_labels(), ["zz-one", "zz-two"]);
 }
