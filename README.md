@@ -30,7 +30,15 @@ rex-resurrect restore   # recreate the latest snapshot's sessions that aren't li
 
 - **`save`** records every session: its label, its windows in order, each window's tiled split
   layout (directions and ratios) and each block's working directory. Each save is a new
-  timestamped snapshot; `latest.json` points at the newest.
+  timestamped snapshot; `latest.json` points at the newest. The newest 10 snapshots are kept
+  (set `REX_RESURRECT_KEEP` to keep a different number).
+  - If there's nothing to save (no sessions, or only sessions with no windows left), `save`
+    writes nothing, leaves `latest.json` alone and exits 0. A save that runs between a server
+    restart and a restore therefore can't replace the snapshot you need.
+  - If Rex's output doesn't have the shape rex-resurrect expects (Rex is in beta and its API
+    can change) or the snapshot fails validation (every session needs a window, every split
+    ratio must be between 0 and 1), `save` writes nothing, exits non-zero and says what didn't
+    match.
 - **`restore`** recreates each saved session from the latest snapshot, unless that session is
   already live, and prints what it `created`, `skipped` and why anything `failed`. One session
   failing doesn't stop the others; `restore` exits non-zero if any failed. Running it twice
@@ -59,6 +67,11 @@ Snapshots and rex-resurrect's own bookkeeping live in its state directory:
 It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which live session
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
 sessions that are already live.
+
+Snapshots can contain commands, and commands can contain secrets, so the state directory is
+readable by you only (`save` makes it `0700` if it isn't) and every file in it is written with
+mode `0600`. Files are written atomically (a temporary file, then a rename), so a crash never
+leaves a partial snapshot behind.
 
 ## Development
 
