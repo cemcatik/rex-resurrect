@@ -56,9 +56,39 @@ pub struct SessionSummary {
 pub struct SessionView {
     pub session_id: String,
     pub label: String,
-    /// In window (tab) order. Absent for a session with no windows.
+    /// Absent for a session with no windows.
+    #[serde(default)]
+    pub active_window_id: Option<String>,
+    /// In window (tab) order. Absent for a session with no windows (Rex
+    /// keeps a session live after its last shell exits).
     #[serde(default)]
     pub windows: Vec<WindowView>,
+}
+
+impl SessionView {
+    /// Cross-checks the keys Rex omits instead of sending them empty, so a
+    /// renamed key can't pass for an empty value (and the session for one
+    /// with nothing to save):
+    /// - `windows` is absent only when there's no `active_window_id` either;
+    /// - a tiled layer's `layout` is null only when its `blocks` are empty
+    ///   (every block floated away).
+    pub fn check_consistency(&self) -> Result<(), String> {
+        if self.windows.is_empty() && self.active_window_id.is_some() {
+            return Err("it names an active window but has no `windows`".into());
+        }
+        for window in &self.windows {
+            if let Some(tiled) = window.tiled_layer()
+                && tiled.layout.is_none()
+                && !tiled.blocks.is_empty()
+            {
+                return Err(format!(
+                    "window {}: its tiled layer has blocks but no `layout`",
+                    window.window_id
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]

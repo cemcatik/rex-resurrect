@@ -33,13 +33,11 @@ pub struct RestoreLock {
 
 impl RestoreLock {
     /// Takes the restore lock, waiting for as long as another rex-resurrect
-    /// process holds it.
+    /// process holds it. Save and restore both start here, so this is also
+    /// where the state directory is created, or made, private.
     pub fn acquire(state: &StateDir) -> Result<RestoreLock> {
+        state.make_private()?;
         let path = state.join(LOCK);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
-        }
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)

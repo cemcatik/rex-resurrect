@@ -152,7 +152,14 @@ impl Rex {
     }
 
     pub fn view_session(&self, session_id: &str) -> Result<SessionView, RexError> {
-        self.call("session.view", &json!({ "session_id": session_id }))
+        let method = "session.view";
+        let view: SessionView = self.call(method, &json!({ "session_id": session_id }))?;
+        view.check_consistency()
+            .map_err(|detail| RexError::UnexpectedOutput {
+                method: method.to_string(),
+                detail,
+            })?;
+        Ok(view)
     }
 
     pub fn create_session(&self, request: &CreateSession) -> Result<CreatedSession, RexError> {

@@ -74,7 +74,15 @@ rex-resurrect list      # list the snapshots, newest first
   layout (directions and ratios), and each block's working directory and last command. Window
   and block labels are recorded only if you set them; windows and blocks with Rex's default
   labels get fresh default labels on restore, not stale copies like `Window 1a2b3c4d`. Each
-  save is a new timestamped snapshot; `latest.json` points at the newest.
+  save is a new timestamped snapshot; `latest.json` points at the newest. The newest 10
+  snapshots are kept (set `REX_RESURRECT_KEEP` to keep a different number).
+  - If there's nothing to save (no sessions, or only sessions with no windows left), `save`
+    writes nothing, leaves `latest.json` alone and exits 0, so a server with nothing on it
+    never replaces your latest snapshot.
+  - If Rex's output doesn't have the shape rex-resurrect expects (Rex is in beta and its API
+    can change) or the snapshot fails validation (every session needs a window, every split
+    ratio must be between 0 and 1), `save` writes nothing, exits non-zero and says what didn't
+    match.
 - **`restore`** recreates each saved session from the latest snapshot, unless that session is
   already live, and prints what it `created`, `skipped` and why anything `failed`. One session
   failing doesn't stop the others; `restore` exits non-zero if any failed. Running it twice
@@ -134,6 +142,12 @@ sessions that are already live. `last-restored-instance` names the server instan
 ran in, and `restore.lock` makes restores take turns. `recorder/` holds one file per block with
 its last command. The recorder finds the state directory the same way, so set
 `REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
+
+Snapshots and recorder files hold commands, and commands can hold secrets, so the state
+directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
+rex-resurrect writes its own files with mode `0600`, and the recorder keeps its files in a
+`0700` directory. Every file is written atomically (a temporary file, then a rename), so a
+crash never leaves a partial snapshot or record behind.
 
 ## Development
 
