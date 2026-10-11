@@ -82,7 +82,7 @@ pub struct SavedSession {
     /// Always saved: Rex's generated session labels can't be told apart
     /// from user-set ones.
     pub label: String,
-    /// In window (tab) order.
+    /// In window order.
     pub windows: Vec<SavedWindow>,
 }
 

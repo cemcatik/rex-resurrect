@@ -61,7 +61,7 @@ pub struct SessionView {
     /// Absent for a session with no windows.
     #[serde(default)]
     pub active_window_id: Option<String>,
-    /// In window (tab) order. Absent for a session with no windows (Rex
+    /// In window order. Absent for a session with no windows (Rex
     /// keeps a session live after its last shell exits).
     #[serde(default)]
     pub windows: Vec<WindowView>,
