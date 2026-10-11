@@ -187,9 +187,9 @@ pub fn restore(
 
 /// Creates each saved session whose lineage has no live session (ADR-0001)
 /// and records the new session's lineage; a dry run only reports what it
-/// would create. A session that fails to create doesn't stop the others;
-/// errors that stop the whole restore (no server, unreadable state) are
-/// returned.
+/// would create. A session that fails, to create or to have its last
+/// commands carried forward, doesn't stop the others; errors that stop the
+/// whole restore (no server, unreadable or unwritable state) are returned.
 fn restore_sessions(
     rex: &Rex,
     state: &StateDir,
@@ -228,44 +228,55 @@ fn restore_sessions(
             report.outcomes.push(Outcome::WouldCreate { label });
             continue;
         }
-        match rex.create_session(&create::create_request(saved, &home, &replay)) {
-            Ok(created) => {
-                lineages.record(&created.session_id, saved.lineage.clone());
-                lineages.save().with_context(|| {
-                    format!(
-                        "recording the lineage of restored session {}",
-                        created.session_id
-                    )
-                })?;
-                let blocks = new_blocks(saved, &created)
-                    .and_then(|blocks| carry_forward(&recorder, &blocks).map(|()| blocks))
-                    .with_context(|| {
-                        format!(
-                            "carrying forward the last commands of restored session {}",
-                            created.session_id
-                        )
-                    })?;
-                for (block_id, block) in blocks {
-                    let created_with = CreatedBlock {
-                        working_directory: create::working_directory(block, &home),
-                        last_command: create::typed_command(block).map(str::to_string),
-                        scrollback: replay.file(block),
-                    };
-                    report
-                        .created_blocks
-                        .insert(block_id.to_string(), created_with);
-                }
-                live.insert(saved.lineage.clone(), created.session_id.clone());
-                report.outcomes.push(Outcome::Created {
+        let created = match rex.create_session(&create::create_request(saved, &home, &replay)) {
+            Ok(created) => created,
+            Err(e) => {
+                report.outcomes.push(Outcome::Failed {
                     label,
-                    session_id: created.session_id,
+                    error: e.to_string(),
                 });
+                continue;
             }
-            Err(e) => report.outcomes.push(Outcome::Failed {
-                label,
-                error: e.to_string(),
-            }),
+        };
+        // The session exists from here on, whatever else fails: record its
+        // lineage first, so no restore creates it again.
+        lineages.record(&created.session_id, saved.lineage.clone());
+        lineages.save().with_context(|| {
+            format!(
+                "recording the lineage of restored session {}",
+                created.session_id
+            )
+        })?;
+        live.insert(saved.lineage.clone(), created.session_id.clone());
+        let carried = new_blocks(saved, &created)
+            .and_then(|blocks| carry_forward(&recorder, &blocks).map(|()| blocks));
+        let blocks = match carried {
+            Ok(blocks) => blocks,
+            Err(e) => {
+                report.outcomes.push(Outcome::Failed {
+                    label,
+                    error: format!(
+                        "created as {}, but its last commands couldn't be carried forward: {e}",
+                        created.session_id
+                    ),
+                });
+                continue;
+            }
+        };
+        for (block_id, block) in blocks {
+            let created_with = CreatedBlock {
+                working_directory: create::working_directory(block, &home),
+                last_command: create::typed_command(block).map(str::to_string),
+                scrollback: replay.file(block),
+            };
+            report
+                .created_blocks
+                .insert(block_id.to_string(), created_with);
         }
+        report.outcomes.push(Outcome::Created {
+            label,
+            session_id: created.session_id,
+        });
     }
     Ok(report)
 }
