@@ -22,13 +22,17 @@ pub enum Command {
 pub const USAGE: &str = "\
 Save Rex sessions and recreate them after the Rex server stops.
 
-Usage: rex-resurrect <command>
+Usage: rex-resurrect <command> [options]
 
 Commands:
   save      Save every session on the Rex server to a new snapshot
   restore   Recreate the latest snapshot's sessions that aren't live
   list      List the snapshots, newest first, with their session labels
   help      Show this help
+
+Restore options:
+  --snapshot <id>  Restore from this snapshot (an ID from `list`) instead of
+                   the latest
 
 Options:
   -h, --help     Show this help
@@ -77,9 +81,12 @@ fn parse_save(args: &mut Args) -> Result<SaveOptions, UsageError> {
 }
 
 fn parse_restore(args: &mut Args) -> Result<RestoreOptions, UsageError> {
-    let options = RestoreOptions::default();
-    if let Some(arg) = args.next() {
-        return Err(args.unexpected(&arg, "restore"));
+    let mut options = RestoreOptions::default();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--snapshot" => options.snapshot = Some(args.value(&arg)?),
+            _ => return Err(args.unexpected(&arg, "restore")),
+        }
     }
     Ok(options)
 }
@@ -120,6 +127,12 @@ impl Args {
 
     fn next(&mut self) -> Option<String> {
         self.rest.next()
+    }
+
+    /// The value following `option`.
+    fn value(&mut self, option: &str) -> Result<String, UsageError> {
+        self.next()
+            .ok_or_else(|| UsageError(format!("{option} needs a value")))
     }
 
     fn unexpected(&self, arg: &str, command: &str) -> UsageError {

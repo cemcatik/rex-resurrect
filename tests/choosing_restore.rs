@@ -75,3 +75,86 @@ fn list_shows_each_snapshot_newest_first_with_its_time_and_session_labels() {
     }
     assert!(snapshots[0].time >= snapshots[1].time, "{snapshots:?}");
 }
+
+fn sorted_labels(server: &Server) -> Vec<String> {
+    let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
+    labels.sort();
+    labels
+}
+
+#[test]
+fn restore_can_use_an_older_snapshot_chosen_from_list() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let gone = session_in(&server, "zz-gone", &a);
+    let kept = session_in(&server, "zz-kept", &a);
+    env.save(&server);
+    server.kill_session(&gone.id);
+    env.save(&server); // The latest snapshot holds only zz-kept.
+    server.kill_session(&kept.id);
+
+    let older = &list(&env, &server)[1];
+    assert_eq!(older.labels, ["zz-gone", "zz-kept"], "{older:?}");
+    let out = env
+        .resurrect(&server)
+        .args(["restore", "--snapshot", &older.id])
+        .run()
+        .assert_success();
+
+    assert_eq!(out.lines_starting("created").len(), 2, "{out}");
+    assert_eq!(sorted_labels(&server), ["zz-gone", "zz-kept"]);
+}
+
+#[test]
+fn restore_from_a_snapshot_that_does_not_exist_fails_and_creates_nothing() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let proj = session_in(&server, "zz-proj", &env.mkdir("a"));
+    env.save(&server);
+    server.kill_session(&proj.id);
+
+    let out = env
+        .resurrect(&server)
+        .args(["restore", "--snapshot", "20000101T000000.000000Z"])
+        .run()
+        .assert_failure();
+
+    assert!(out.stderr.contains("20000101T000000.000000Z"), "{out}");
+    assert!(server.sessions().is_empty(), "{:?}", server.sessions());
+}
+
+#[test]
+fn restoring_an_older_snapshot_skips_saved_sessions_whose_lineage_is_live() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
+    let original = session_in(&server, "zz-proj", &a);
+    env.save(&server);
+    let older = list(&env, &server)[0].id.clone();
+    server.kill_session(&original.id);
+    env.restore(&server);
+
+    // The restored session (of the original's lineage) moves on to `b`.
+    let [restored] = server.session_ids_labelled("zz-proj").try_into().unwrap();
+    let Shape::Block(block) = &common::fixture::tiled_layouts(&server.view(&restored))[0] else {
+        panic!("the restored session holds one block");
+    };
+    server.write(&restored, block, &format!("cd '{}'\n", b.display()));
+    server.wait_for_pwd_eq(&restored, block, &b);
+    env.save(&server);
+
+    let out = env
+        .resurrect(&server)
+        .args(["restore", "--snapshot", &older])
+        .run()
+        .assert_success();
+
+    assert!(out.lines_starting("created").is_empty(), "{out}");
+    assert_eq!(out.lines_starting("skipped").len(), 1, "{out}");
+    assert_eq!(server.session_ids_labelled("zz-proj"), [restored.as_str()]);
+    assert_eq!(
+        server.window_shapes(&restored),
+        [shell(&b).expected_shape()]
+    );
+}

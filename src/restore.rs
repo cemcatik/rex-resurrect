@@ -1,18 +1,21 @@
-//! `rex-resurrect restore`: recreate the latest snapshot's sessions.
+//! `rex-resurrect restore`: recreate a snapshot's sessions, the latest by default.
 
 use std::collections::HashMap;
 use std::io::Write;
 use std::process::ExitCode;
 
 use crate::create;
-use crate::error::{Context, Result};
+use crate::error::{Context, Error, Result};
 use crate::lineage::{Lineage, LineageMap};
 use crate::rex::Rex;
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 
 #[derive(Debug, Default)]
-pub struct RestoreOptions {}
+pub struct RestoreOptions {
+    /// Restore from this snapshot (an identifier `list` shows) instead of the latest.
+    pub snapshot: Option<String>,
+}
 
 /// What happened to one saved session.
 #[derive(Debug)]
@@ -88,8 +91,17 @@ pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
 /// and records the new session's lineage. A session that fails to create
 /// doesn't stop the others; errors that stop the whole restore (no server,
 /// unreadable state) are returned.
-pub fn restore(rex: &Rex, state: &StateDir, _options: &RestoreOptions) -> Result<RestoreReport> {
-    let Some(snapshot) = SnapshotStore::new(state).read_latest()? else {
+pub fn restore(rex: &Rex, state: &StateDir, options: &RestoreOptions) -> Result<RestoreReport> {
+    let store = SnapshotStore::new(state);
+    let snapshot = match &options.snapshot {
+        Some(id) => Some(store.read(id)?.ok_or_else(|| {
+            Error::new(format!(
+                "no snapshot {id:?}: `rex-resurrect list` shows the snapshots"
+            ))
+        })?),
+        None => store.read_latest()?,
+    };
+    let Some(snapshot) = snapshot else {
         return Ok(RestoreReport::default());
     };
     let live_sessions = rex.list_sessions()?;
