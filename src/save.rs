@@ -53,6 +53,9 @@ pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved
     }
     let taken_at = Timestamp::now();
     let snapshot = Snapshot::new(taken_at, sessions);
+    snapshot
+        .validate()
+        .with_context(|| "the snapshot failed validation, so nothing was written")?;
     let path = SnapshotStore::new(state).write(&snapshot, taken_at)?;
     Ok(Saved::Snapshot {
         path,
