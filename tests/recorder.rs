@@ -213,7 +213,12 @@ fn users_can_extend_the_ignore_list_from_their_zsh_config() {
     let server = env.start_server();
     let touch = format!("touch {}", env.root().join("zz-touched").display());
     // `ls` is still ignored by default, and `echo` now is too.
-    run_in_one_block(&env, &server, "zz-extend", &[&touch, "ls", "echo zz-extended"]);
+    run_in_one_block(
+        &env,
+        &server,
+        "zz-extend",
+        &[&touch, "ls", "echo zz-extended"],
+    );
 
     assert_restored_with_typed(&env, &server, "zz-extend", &[&touch]);
 }
@@ -228,7 +233,12 @@ fn users_can_replace_the_ignore_list_from_their_zsh_config() {
     let server = env.start_server();
     let touch = format!("touch {}", env.root().join("zz-touched").display());
     // `ls` is no longer ignored; `echo` is.
-    run_in_one_block(&env, &server, "zz-replace", &[&touch, "ls", "echo zz-replaced"]);
+    run_in_one_block(
+        &env,
+        &server,
+        "zz-replace",
+        &[&touch, "ls", "echo zz-replaced"],
+    );
 
     assert_restored_with_typed(&env, &server, "zz-replace", &["ls"]);
 }
