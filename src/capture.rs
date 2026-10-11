@@ -7,17 +7,18 @@ use crate::foreground;
 use crate::label;
 use crate::lineage::Lineage;
 use crate::recorder::{Recorded, RecorderFiles};
+use crate::restore::CreatedBlocks;
 use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, WindowView};
 use crate::rex::{BlockRef, Rex};
-use crate::scrollback::{ScrollbackStore, SnapshotScrollback};
+use crate::scrollback::{ScrollbackSource, ScrollbackStore, SnapshotScrollback};
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedSplit, SavedWindow};
 use crate::state::StateDir;
 use crate::timestamp::Timestamp;
 use crate::workdir;
 
 /// What save compares blocks against and reads about them on this machine:
-/// the local server, the home directory and the recorder files; and where
-/// it saves their scrollback.
+/// the local server, the home directory, the recorder files and the blocks
+/// this run just restored; and where it saves their scrollback.
 pub struct Local {
     /// The local server's host. A block with a different `host_id` is a
     /// remote block.
@@ -26,17 +27,26 @@ pub struct Local {
     pub home: PathBuf,
     /// Each local shell block's last command.
     pub recorder: RecorderFiles,
+    /// The blocks the restore this save ran first created.
+    pub restored: CreatedBlocks,
     /// Where the snapshot this save writes keeps its blocks' scrollback.
     pub scrollback: SnapshotScrollback,
 }
 
 impl Local {
-    /// `taken_at`: the time of the snapshot this save writes.
-    pub fn read(rex: &Rex, state: &StateDir, taken_at: Timestamp) -> Result<Local> {
+    /// `taken_at`: the time of the snapshot this save writes. `restored`:
+    /// the blocks the restore this save ran first created, if any.
+    pub fn read(
+        rex: &Rex,
+        state: &StateDir,
+        taken_at: Timestamp,
+        restored: CreatedBlocks,
+    ) -> Result<Local> {
         Ok(Local {
             host_id: rex.server_status()?.host_id,
             home: workdir::home()?,
             recorder: RecorderFiles::new(state),
+            restored,
             scrollback: ScrollbackStore::new(state).for_snapshot(taken_at),
         })
     }
@@ -74,7 +84,7 @@ pub struct CapturedSession {
     pub saved: SavedSession,
     /// One entry per block of `saved`, window by window in layout order: the
     /// block whose scrollback to save, or `None` for a block that gets none.
-    scrollback: Vec<Option<BlockRef>>,
+    scrollback: Vec<Option<ScrollbackSource>>,
 }
 
 impl CapturedSession {
@@ -92,7 +102,7 @@ impl CapturedSession {
             .flat_map(|window| window.layout.blocks_mut());
         for (block, source) in blocks.zip(self.scrollback) {
             if let Some(source) = source {
-                block.scrollback = store.save(rex, &source.session_id, &source.block_id)?;
+                block.scrollback = store.save(rex, &source)?;
             }
         }
         Ok(self.saved)
@@ -132,7 +142,7 @@ struct Capture<'a> {
     local: &'a Local,
     session: &'a SessionView,
     /// [`CapturedSession::scrollback`] so far.
-    scrollback: Vec<Option<BlockRef>>,
+    scrollback: Vec<Option<ScrollbackSource>>,
 }
 
 impl Capture<'_> {
@@ -179,7 +189,8 @@ impl Capture<'_> {
     /// as the source of truth for its last command, including a record that
     /// it has none. A block without one (its shell started before the
     /// recorder was installed) falls back to the program in its foreground.
-    /// Its scrollback is saved later, if save keeps the session. A
+    /// Its scrollback is saved later, if save keeps the session. A block
+    /// this run just restored is saved as restore created it. A
     /// non-terminal block has no working directory, and a remote block's is
     /// on another host, so either is saved as a plain shell in the home
     /// directory.
@@ -187,22 +198,41 @@ impl Capture<'_> {
         if !self.local.is_local_shell(block) {
             return Ok(self.plain_shell());
         }
+        let label = label::user_set_block_label(block).map(str::to_owned);
         let (rex, session_id, block_id) = (self.rex, &self.session.session_id, &block.block_id);
+        if let Some(created) = self.local.restored.get(block_id) {
+            // Its shell may still be starting: it hasn't reported a working
+            // directory, and the startup may be running in its foreground.
+            // Nothing can have run in it yet.
+            self.scrollback.push(created.scrollback.clone().map(|file| {
+                ScrollbackSource::Restored {
+                    block_id: block_id.clone(),
+                    file,
+                }
+            }));
+            return Ok(SavedBlock {
+                label,
+                working_directory: created.working_directory.clone(),
+                last_command: created.last_command.clone(),
+                scrollback: None,
+            });
+        }
         let last_command = match self.local.recorder.read(block_id)? {
             Recorded::LastCommand(command) => Some(command),
             Recorded::NoLastCommand => None,
             Recorded::Nothing => foreground::foreground_command(rex, session_id, block_id)?,
         };
         let saved = SavedBlock {
-            label: label::user_set_block_label(block).map(str::to_owned),
+            label,
             working_directory: workdir::working_directory(rex, session_id, block_id)?,
             last_command,
             scrollback: None,
         };
-        self.scrollback.push(Some(BlockRef {
-            session_id: session_id.clone(),
-            block_id: block_id.clone(),
-        }));
+        self.scrollback
+            .push(Some(ScrollbackSource::Terminal(BlockRef {
+                session_id: session_id.clone(),
+                block_id: block_id.clone(),
+            })));
         Ok(saved)
     }
 

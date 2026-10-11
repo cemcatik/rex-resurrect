@@ -28,8 +28,8 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::account::Account;
 use crate::error::{Context, Result};
-use crate::rex::Rex;
 use crate::rex::api::{FormatArgs, TerminalOptions};
+use crate::rex::{BlockRef, Rex};
 use crate::snapshot::SavedBlock;
 use crate::state::{self, StateDir};
 use crate::timestamp::Timestamp;
@@ -115,55 +115,82 @@ pub struct SnapshotScrollback {
     relative: PathBuf,
 }
 
+/// Where a block's scrollback comes from.
+#[derive(Debug)]
+pub enum ScrollbackSource {
+    /// The block's terminal, read through Rex.
+    Terminal(BlockRef),
+    /// The file restore printed in the block it just created: nothing else
+    /// can have reached its terminal yet, and the printing may not have
+    /// finished.
+    Restored { block_id: String, file: PathBuf },
+}
+
 impl SnapshotScrollback {
     /// Saves a shell block's scrollback and returns the path its saved block
     /// records. `None`, and nothing saved, for a block on the alternate
-    /// screen, a block with nothing in it, or a block ID that can't name a
-    /// file.
-    pub fn save(&self, rex: &Rex, session_id: &str, block_id: &str) -> Result<Option<PathBuf>> {
+    /// screen, a block with nothing in it, a restored block whose file has
+    /// gone, or a block ID that can't name a file.
+    pub fn save(&self, rex: &Rex, source: &ScrollbackSource) -> Result<Option<PathBuf>> {
+        let (block_id, content) = match source {
+            ScrollbackSource::Terminal(block) => {
+                (&block.block_id, terminal_scrollback(rex, block)?)
+            }
+            ScrollbackSource::Restored { block_id, file } => (
+                block_id,
+                state::read_file(file)?.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
+            ),
+        };
         let plain =
             !block_id.is_empty() && !block_id.starts_with('.') && !block_id.contains(['/', '\0']);
-        if !plain {
+        let Some(content) = content.filter(|_| plain) else {
             return Ok(None);
-        }
-        let modes = rex.terminal_format(
-            session_id,
-            block_id,
-            &FormatArgs {
-                format: "vt",
-                extra_modes: true,
-                ..FormatArgs::default()
-            },
-        )?;
-        if ALTERNATE_SCREEN
-            .iter()
-            .any(|mode| modes.content.contains(mode))
-        {
-            return Ok(None);
-        }
-        let mut content = rex
-            .terminal_format(
-                session_id,
-                block_id,
-                &FormatArgs {
-                    format: "vt",
-                    unwrap: true,
-                    ..FormatArgs::default()
-                },
-            )?
-            .content;
-        if content.trim().is_empty() {
-            return Ok(None);
-        }
-        // The last line is usually the old prompt: end it, so what's printed
-        // after the replay starts on a line of its own.
-        if !content.ends_with('\n') {
-            content.push_str("\r\n");
-        }
+        };
         let name = format!("{block_id}.vt");
         state::write_file(&self.dir.join(&name), content.as_bytes())?;
         Ok(Some(self.relative.join(name)))
     }
+}
+
+/// A shell block's scrollback as VT, ready to replay; `None` for a block on
+/// the alternate screen or with nothing in it.
+fn terminal_scrollback(rex: &Rex, block: &BlockRef) -> Result<Option<String>> {
+    let (session_id, block_id) = (&block.session_id, &block.block_id);
+    let modes = rex.terminal_format(
+        session_id,
+        block_id,
+        &FormatArgs {
+            format: "vt",
+            extra_modes: true,
+            ..FormatArgs::default()
+        },
+    )?;
+    if ALTERNATE_SCREEN
+        .iter()
+        .any(|mode| modes.content.contains(mode))
+    {
+        return Ok(None);
+    }
+    let mut content = rex
+        .terminal_format(
+            session_id,
+            block_id,
+            &FormatArgs {
+                format: "vt",
+                unwrap: true,
+                ..FormatArgs::default()
+            },
+        )?
+        .content;
+    if content.trim().is_empty() {
+        return Ok(None);
+    }
+    // The last line is usually the old prompt: end it, so what's printed
+    // after the replay starts on a line of its own.
+    if !content.ends_with('\n') {
+        content.push_str("\r\n");
+    }
+    Ok(Some(content))
 }
 
 /// How restore prints a block's saved scrollback above its new prompt.
@@ -213,14 +240,20 @@ impl Replay {
         }
     }
 
+    /// The file [`Replay::apply`] prints for `block`: its saved scrollback,
+    /// unless the block has no scrollback file (any more), or there's no
+    /// account to start the shell as.
+    pub fn file(&self, block: &SavedBlock) -> Option<PathBuf> {
+        let account = self.account.as_ref()?;
+        let file = self.store.file(block)?;
+        (file.to_str().is_some() && account.shell.to_str().is_some()).then_some(file)
+    }
+
     /// Makes `options` start the block by printing `block`'s saved
-    /// scrollback. Leaves them alone if the block has no scrollback file
-    /// (any more), or there's no account to start the shell as.
+    /// scrollback ([`Replay::file`]). Leaves them alone if there's none to
+    /// print.
     pub fn apply(&self, block: &SavedBlock, options: &mut TerminalOptions) {
-        let Some(account) = &self.account else {
-            return;
-        };
-        let Some(file) = self.store.file(block) else {
+        let (Some(account), Some(file)) = (&self.account, self.file(block)) else {
             return;
         };
         let (Some(file), Some(shell)) = (file.to_str(), account.shell.to_str()) else {

@@ -8,7 +8,7 @@ use crate::create;
 use crate::error::{Context, Result};
 use crate::instance::RestoreLock;
 use crate::lineage::LineageMap;
-use crate::restore;
+use crate::restore::{self, CreatedBlocks};
 use crate::retention::Retention;
 use crate::rex::Rex;
 use crate::scrollback::ScrollbackStore;
@@ -32,24 +32,27 @@ pub enum Saved {
 
 /// Restores first if rex-resurrect hasn't restored into this server instance
 /// yet, so that a save on a freshly started server can't replace the latest
-/// snapshot with a near-empty one. Still saves if some sessions failed to
-/// restore, but then exits non-zero.
+/// snapshot with a near-empty one. The blocks that restore created are
+/// saved as it created them: their shells are still starting. Still saves if
+/// some sessions failed to restore, but then exits non-zero.
 ///
 /// Holds the restore lock throughout: a save that finds a restore running
 /// waits for it rather than saving a half-restored server.
-pub fn run(options: &SaveOptions) -> Result<ExitCode> {
+pub fn run(_options: &SaveOptions) -> Result<ExitCode> {
     // Configuration first: a bad setting fails before anything is restored.
     let retention = Retention::from_env()?;
     let rex = Rex::from_env();
     let state = StateDir::from_env()?;
     let lock = RestoreLock::acquire(&state)?;
-    let restored_first = restore::restore_unrestored_instance(&rex, &state, &lock)?;
-    if let Some(report) = &restored_first {
+    let mut restored_first = restore::restore_unrestored_instance(&rex, &state, &lock)?;
+    let mut restored_blocks = CreatedBlocks::new();
+    if let Some(report) = &mut restored_first {
         println!("restored first: this server instance hadn't been restored into yet");
         let _ = report.print(&mut std::io::stdout().lock());
         report.log_failures(&state, "save (restoring first)");
+        restored_blocks = std::mem::take(&mut report.created_blocks);
     }
-    match save(&rex, &state, retention, options)? {
+    match save(&rex, &state, retention, restored_blocks)? {
         Saved::Snapshot { path, sessions } => {
             println!("saved {sessions} session(s) to {}", path.display());
         }
@@ -63,13 +66,15 @@ pub fn run(options: &SaveOptions) -> Result<ExitCode> {
     })
 }
 
+/// Saves every session worth saving. `restored`: the blocks a restore this
+/// run made first created, which are saved as they were created.
 pub fn save(
     rex: &Rex,
     state: &StateDir,
     retention: Retention,
-    options: &SaveOptions,
+    restored: CreatedBlocks,
 ) -> Result<Saved> {
-    let saved = save_snapshot(rex, state, retention, options);
+    let saved = save_snapshot(rex, state, retention, restored);
     // Scrollback is kept exactly as long as its snapshot: old snapshots'
     // goes with them, and a save that wrote no snapshot (an empty server, a
     // failure) leaves none behind.
@@ -86,13 +91,13 @@ fn save_snapshot(
     rex: &Rex,
     state: &StateDir,
     retention: Retention,
-    _options: &SaveOptions,
+    restored: CreatedBlocks,
 ) -> Result<Saved> {
     // Taken first: each kept session's scrollback is saved under the
     // snapshot's name as the walk reaches it.
     let taken_at = Timestamp::now();
     let lineages = LineageMap::load(state)?;
-    let local = capture::Local::read(rex, state, taken_at)?;
+    let local = capture::Local::read(rex, state, taken_at, restored)?;
     let mut live = Live::new();
     let mut sessions = Vec::new();
     for summary in rex.list_sessions()? {

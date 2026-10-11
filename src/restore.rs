@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crate::create;
@@ -13,7 +14,7 @@ use crate::recorder::RecorderFiles;
 use crate::rex::Rex;
 use crate::rex::api::CreatedSession;
 use crate::scrollback::Replay;
-use crate::snapshot::{SavedSession, Snapshot};
+use crate::snapshot::{SavedBlock, SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 use crate::workdir;
@@ -66,6 +67,24 @@ pub struct RestoreReport {
     pub had_snapshot: bool,
     pub dry_run: bool,
     pub outcomes: Vec<Outcome>,
+    /// What each block restore created was created with, by block ID.
+    pub created_blocks: CreatedBlocks,
+}
+
+/// The blocks a restore created, by block ID.
+pub type CreatedBlocks = HashMap<String, CreatedBlock>;
+
+/// What restore created a block with. Until something runs in the block,
+/// that's all there is to it, so a save that restored first saves it as
+/// this rather than read a shell that's still starting.
+#[derive(Debug)]
+pub struct CreatedBlock {
+    /// Where its shell started.
+    pub working_directory: PathBuf,
+    /// What restore typed at its prompt.
+    pub last_command: Option<String>,
+    /// The scrollback restore printed in it.
+    pub scrollback: Option<PathBuf>,
 }
 
 impl RestoreReport {
@@ -194,7 +213,7 @@ fn restore_sessions(
     let mut report = RestoreReport {
         had_snapshot: true,
         dry_run: options.dry_run,
-        outcomes: Vec::new(),
+        ..RestoreReport::default()
     };
     for saved in selected {
         let label = saved.label.clone();
@@ -218,12 +237,24 @@ fn restore_sessions(
                         created.session_id
                     )
                 })?;
-                carry_forward(&recorder, saved, &created).with_context(|| {
-                    format!(
-                        "carrying forward the last commands of restored session {}",
-                        created.session_id
-                    )
-                })?;
+                let blocks = new_blocks(saved, &created)
+                    .and_then(|blocks| carry_forward(&recorder, &blocks).map(|()| blocks))
+                    .with_context(|| {
+                        format!(
+                            "carrying forward the last commands of restored session {}",
+                            created.session_id
+                        )
+                    })?;
+                for (block_id, block) in blocks {
+                    let created_with = CreatedBlock {
+                        working_directory: create::working_directory(block, &home),
+                        last_command: create::typed_command(block).map(str::to_string),
+                        scrollback: replay.file(block),
+                    };
+                    report
+                        .created_blocks
+                        .insert(block_id.to_string(), created_with);
+                }
                 live.insert(saved.lineage.clone(), created.session_id.clone());
                 report.outcomes.push(Outcome::Created {
                     label,
@@ -289,15 +320,23 @@ fn selected_sessions<'a>(
 /// number of restores until the block's shell records a new one. And a block
 /// restored with no last command keeps none: save never mistakes a program
 /// in its foreground (its shell still starting, say) for one.
+fn carry_forward(recorder: &RecorderFiles, blocks: &[(&str, &SavedBlock)]) -> Result<()> {
+    for (block_id, block) in blocks {
+        recorder.record(block_id, create::typed_command(block))?;
+    }
+    Ok(())
+}
+
+/// Each block `session.create` created for `saved`, by ID, with the saved
+/// block it was created from.
 ///
 /// `session.create` returns each window's block IDs in layout order
 /// (depth-first, `before` then `after`), the order `SavedLayout::blocks`
 /// walks the saved layout in.
-fn carry_forward(
-    recorder: &RecorderFiles,
-    saved: &SavedSession,
-    created: &CreatedSession,
-) -> Result<()> {
+fn new_blocks<'a>(
+    saved: &'a SavedSession,
+    created: &'a CreatedSession,
+) -> Result<Vec<(&'a str, &'a SavedBlock)>> {
     if created.initial_windows.len() != saved.windows.len() {
         return Err(Error::new(format!(
             "session.create returned {} windows for {} saved ones",
@@ -305,6 +344,7 @@ fn carry_forward(
             saved.windows.len()
         )));
     }
+    let mut new_blocks = Vec::new();
     for (i, (window, created_window)) in saved
         .windows
         .iter()
@@ -319,9 +359,8 @@ fn carry_forward(
                 blocks.len()
             )));
         }
-        for (block, block_id) in blocks.into_iter().zip(&created_window.block_ids) {
-            recorder.record(block_id, create::typed_command(block))?;
-        }
+        let ids = created_window.block_ids.iter().map(String::as_str);
+        new_blocks.extend(ids.zip(blocks));
     }
-    Ok(())
+    Ok(new_blocks)
 }

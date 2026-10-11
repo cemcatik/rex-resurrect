@@ -61,6 +61,48 @@ fn save_on_a_fresh_server_instance_restores_the_latest_snapshot_first() {
     assert_eq!(sorted_labels(&third), ["zz-early", "zz-proj"]);
 }
 
+/// A save that restores first reads the server straight after creating the
+/// restored blocks, while their shells are still starting (a slow zsh
+/// config, here a `sleep` in `.zshrc`): no working directory reported yet,
+/// and whatever the startup runs in the foreground. Nothing can have run in
+/// them yet, so it saves them as restore created them.
+#[test]
+fn a_save_that_restores_first_saves_the_blocks_it_restored_as_restore_created_them() {
+    let env = TestEnv::builder().zshrc_line("sleep 3").build();
+    let [proj, other] = ["proj", "other"].map(|name| env.mkdir(name));
+    let layout = || hsplit(0.7, shell(&proj), shell(&other));
+    {
+        let before = env.start_server();
+        let fixture = before.create_session("zz-proj", &[window(layout())]);
+        before.wait_for_pwds(&fixture);
+        let [typed, idle] = [0, 1].map(|i| fixture.block_ids()[i]);
+        before.run(&fixture.id, idle, "echo zz-earlier");
+        before.wait_for_capture(&fixture.id, idle, "the echo", |c| {
+            c.contains("\nzz-earlier")
+        });
+        env.write_recorder_file(typed, "make test");
+        env.save(&before);
+    } // The server stops, as in a restart.
+    {
+        let after = env.start_server();
+        env.save(&after);
+    }
+
+    let third = env.start_server();
+    env.restore(&third);
+    let restored = third.the_session_labelled("zz-proj");
+    let blocks = third.block_ids(&restored);
+    third.wait_for_typed(&restored, &blocks[0], "make test");
+    let idle = third.wait_for_empty_prompt(&restored, &blocks[1]);
+    assert!(idle.ends_with(" %"), "no last command: {idle:?}");
+    let capture = third.capture(&restored, &blocks[1]);
+    assert!(
+        capture.contains("\nzz-earlier"),
+        "the scrollback restore printed is saved again:\n{capture}"
+    );
+    assert_eq!(third.window_shapes(&restored), [layout().expected_shape()]);
+}
+
 #[test]
 fn with_no_snapshot_yet_save_saves_and_counts_the_instance_as_restored() {
     let env = TestEnv::new();
