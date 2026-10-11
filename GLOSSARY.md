@@ -67,6 +67,10 @@ A server with no live sessions worth saving: none at all, or only untouched ones
 **Untouched session**:
 A session with nothing worth restoring: one window holding one shell block, default window and block labels, its working directory still home, and no last command. Its label doesn't count, so a session that was only renamed is still untouched. Untouched sessions aren't saved.
 
+**Scrollback**:
+A shell block's earlier output, saved with a snapshot and printed back above the block's new prompt when it's restored. A block that was showing a full-screen program (on the terminal's alternate screen) has none saved.
+_Avoid_: history (that's the shell's command history), pane contents
+
 **Autosave**:
 A save that runs on a timer without the user asking.
 _Avoid_: scheduled save, periodic save
