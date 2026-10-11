@@ -121,6 +121,16 @@ impl TestEnv {
         std::fs::write(dir.join(block_id), format!("{command}\n")).unwrap();
     }
 
+    /// The entries in rex-resurrect's log (`rex-resurrect.log` in the state
+    /// directory), oldest first; none if there's no log yet.
+    pub fn log_entries(&self) -> Vec<String> {
+        match std::fs::read_to_string(self.state_dir().join("rex-resurrect.log")) {
+            Ok(log) => log.lines().map(str::to_string).collect(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => panic!("reading the log: {e}"),
+        }
+    }
+
     /// The home directory of a `TestEnv` built with
     /// [`TestEnvBuilder::own_home`]. The path stays logical (`/tmp/...`, not
     /// `/private/tmp/...`).

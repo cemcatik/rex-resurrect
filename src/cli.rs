@@ -7,14 +7,17 @@
 use std::ffi::OsString;
 use std::fmt;
 
+use crate::autosave::{AutosaveCommand, InstallOptions};
 use crate::list::ListOptions;
 use crate::restore::RestoreOptions;
 use crate::save::SaveOptions;
+use crate::scheduler::Interval;
 
 pub enum Command {
     Save(SaveOptions),
     Restore(RestoreOptions),
     List(ListOptions),
+    Autosave(AutosaveCommand),
     Help,
     Version,
 }
@@ -28,6 +31,10 @@ Commands:
   save      Save every session on the Rex server to a new snapshot
   restore   Recreate the latest snapshot's sessions that aren't live
   list      List the snapshots, newest first, with their session labels
+  autosave install
+            Run `save` every 15 minutes in the background (a launchd agent)
+  autosave uninstall
+            Stop autosave, and say how to remove the rest of rex-resurrect
   help      Show this help
 
 Restore options:
@@ -35,6 +42,9 @@ Restore options:
                      of the latest
   --session <label>  Restore only the saved sessions with this label
   -n, --dry-run      Print what would be created and skipped; create nothing
+
+Autosave install options:
+  --interval <minutes>  Save this often instead (default: 15)
 
 Options:
   -h, --help     Show this help
@@ -70,6 +80,7 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, UsageE
         "save" => parse_save(&mut args).map(Command::Save),
         "restore" => parse_restore(&mut args).map(Command::Restore),
         "list" => parse_list(&mut args).map(Command::List),
+        "autosave" => parse_autosave(&mut args).map(Command::Autosave),
         "help" => Ok(Command::Help),
         "-V" | "--version" | "version" => Ok(Command::Version),
         other => Err(UsageError(format!("unknown command {other:?}"))),
@@ -103,6 +114,36 @@ fn parse_list(args: &mut Args) -> Result<ListOptions, UsageError> {
         return Err(args.unexpected(&arg, "list"));
     }
     Ok(options)
+}
+
+fn parse_autosave(args: &mut Args) -> Result<AutosaveCommand, UsageError> {
+    let Some(action) = args.next() else {
+        return Err(UsageError("autosave needs `install` or `uninstall`".into()));
+    };
+    match action.as_str() {
+        "install" => {
+            let mut options = InstallOptions::default();
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--interval" => {
+                        let minutes = args.value(&arg)?;
+                        options.interval = Interval::parse_minutes(&minutes).ok_or_else(|| {
+                            UsageError(format!(
+                                "--interval takes a whole number of minutes, at least 1, not {minutes:?}"
+                            ))
+                        })?;
+                    }
+                    _ => return Err(args.unexpected(&arg, "autosave install")),
+                }
+            }
+            Ok(AutosaveCommand::Install(options))
+        }
+        "uninstall" => match args.next() {
+            Some(arg) => Err(args.unexpected(&arg, "autosave uninstall")),
+            None => Ok(AutosaveCommand::Uninstall),
+        },
+        _ => Err(args.unexpected(&action, "autosave")),
+    }
 }
 
 /// The remaining arguments, as UTF-8 strings.
