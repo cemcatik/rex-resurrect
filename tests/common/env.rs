@@ -36,11 +36,13 @@ pub const STATE_DIR_VAR: &str = "REX_RESURRECT_STATE_DIR";
 pub struct TestEnv {
     root: Arc<TempDir>,
     servers_started: AtomicU32,
+    own_home: bool,
 }
 
 #[derive(Default)]
 pub struct TestEnvBuilder {
     zsh: ZshConfig,
+    own_home: bool,
 }
 
 impl TestEnvBuilder {
@@ -50,14 +52,24 @@ impl TestEnvBuilder {
         self
     }
 
+    /// Gives every throwaway server (and so every block shell) and every
+    /// `rex-resurrect` run [`TestEnv::home`] as `HOME` instead of the user's
+    /// own. A block created without a `cwd` starts there.
+    pub fn own_home(mut self) -> Self {
+        self.own_home = true;
+        self
+    }
+
     pub fn build(self) -> TestEnv {
         let root = Arc::new(TempDir::new());
         let env = TestEnv {
             root,
             servers_started: AtomicU32::new(0),
+            own_home: self.own_home,
         };
         self.zsh.write(&env.zdotdir());
         for dir in [
+            env.home(),
             env.state_dir(),
             env.xdg_dir("runtime"),
             env.xdg_dir("state"),
@@ -107,6 +119,13 @@ impl TestEnv {
         let dir = self.state_dir().join("recorder");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(block_id), format!("{command}\n")).unwrap();
+    }
+
+    /// The home directory of a `TestEnv` built with
+    /// [`TestEnvBuilder::own_home`]. The path stays logical (`/tmp/...`, not
+    /// `/private/tmp/...`).
+    pub fn home(&self) -> PathBuf {
+        self.root().join("home")
     }
 
     /// The harness `ZDOTDIR` (see [`ZshConfig`]).
@@ -226,6 +245,9 @@ impl TestEnv {
         let mut set = |k: &str, v: &OsStr| {
             env.insert(OsString::from(k), v.to_os_string());
         };
+        if self.own_home {
+            set("HOME", self.home().as_os_str());
+        }
         set(STATE_DIR_VAR, self.state_dir().as_os_str());
         set("ZDOTDIR", self.zdotdir().as_os_str());
         set("XDG_RUNTIME_DIR", self.xdg_dir("runtime").as_os_str());

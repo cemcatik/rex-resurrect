@@ -77,9 +77,15 @@ rex-resurrect list      # list the snapshots, newest first
   labels get fresh default labels on restore, not stale copies like `Window 1a2b3c4d`. Each
   save is a new timestamped snapshot; `latest.json` points at the newest. The newest 10
   snapshots are kept (set `REX_RESURRECT_KEEP` to keep a different number).
-  - If there's nothing to save (no sessions, or only sessions with no windows left), `save`
-    writes nothing, leaves `latest.json` alone and exits 0, so a server with nothing on it
-    never replaces your latest snapshot.
+  - Untouched sessions are left out: one window holding one shell, with Rex's default window
+    and block labels, still in your home directory, and no last command. Sessions that Rex or
+    you create and then abandon therefore don't pile up across restarts. A session's own label
+    doesn't count, because Rex's generated ones (`amber-ridge`) look like any other, so a
+    session you only renamed is still untouched. A restored session keeps its last command, so
+    it doesn't turn untouched just because you haven't run anything in it since.
+  - If there's nothing to save (no sessions, or only untouched sessions or sessions with no
+    windows left), `save` writes nothing, leaves `latest.json` alone and exits 0, so a server
+    with nothing on it never replaces your latest snapshot.
   - If Rex's output doesn't have the shape rex-resurrect expects (Rex is in beta and its API
     can change) or the snapshot fails validation (every session needs a window, every split
     ratio must be between 0 and 1), `save` writes nothing, exits non-zero and says what didn't
