@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::account;
 use crate::error::{Error, Result};
 use crate::foreground;
 use crate::label;
@@ -18,10 +19,11 @@ use crate::state::StateDir;
 use crate::timestamp::Timestamp;
 use crate::workdir;
 
-/// What save compares blocks against and reads about them on this machine:
-/// the local server, the home directory, the recorder files and the blocks
-/// this run just restored; and where it saves their scrollback.
-pub struct Local {
+/// What a save captures blocks with: what it compares them against (the
+/// local server's host, the home directory), where it reads about them on
+/// this machine (the recorder files, the blocks this run just restored), the
+/// programs whose blocks get no scrollback, and where it saves scrollback.
+pub struct CaptureContext {
     /// The local server's host. A block with a different `host_id` is a
     /// remote block.
     pub host_id: String,
@@ -37,7 +39,7 @@ pub struct Local {
     pub no_scrollback: NoScrollbackPrograms,
 }
 
-impl Local {
+impl CaptureContext {
     /// `taken_at`: the time of the snapshot this save writes. `restored`:
     /// the blocks the restore this save ran first created, if any.
     pub fn read(
@@ -46,10 +48,10 @@ impl Local {
         taken_at: Timestamp,
         restored: CreatedBlocks,
         no_scrollback: NoScrollbackPrograms,
-    ) -> Result<Local> {
-        Ok(Local {
+    ) -> Result<CaptureContext> {
+        Ok(CaptureContext {
             host_id: rex.server_status()?.host_id,
-            home: workdir::home()?,
+            home: account::home()?,
             recorder: RecorderFiles::new(state),
             restored,
             scrollback: ScrollbackStore::new(state).for_snapshot(taken_at),
@@ -117,13 +119,13 @@ impl CapturedSession {
 
 pub fn saved_session(
     rex: &Rex,
-    local: &Local,
+    context: &CaptureContext,
     view: &SessionView,
     lineage: Lineage,
 ) -> Result<CapturedSession> {
     let mut capture = Capture {
         rex,
-        local,
+        context,
         session: view,
         scrollback: Vec::new(),
     };
@@ -145,7 +147,7 @@ pub fn saved_session(
 /// One session's capture, under way.
 struct Capture<'a> {
     rex: &'a Rex,
-    local: &'a Local,
+    context: &'a CaptureContext,
     session: &'a SessionView,
     /// [`CapturedSession::scrollback`] so far.
     scrollback: Vec<Option<ScrollbackSource>>,
@@ -201,12 +203,12 @@ impl Capture<'_> {
     /// on another host, so either is saved as a plain shell in the home
     /// directory.
     fn saved_block(&mut self, block: &BlockView) -> Result<SavedBlock> {
-        if !self.local.is_local_shell(block) {
+        if !self.context.is_local_shell(block) {
             return Ok(self.plain_shell());
         }
         let label = label::user_set_block_label(block).map(str::to_owned);
         let (rex, session_id, block_id) = (self.rex, &self.session.session_id, &block.block_id);
-        if let Some(created) = self.local.restored.get(block_id) {
+        if let Some(created) = self.context.restored.get(block_id) {
             // Its shell may still be starting: it hasn't reported a working
             // directory, and the startup may be running in its foreground.
             // Nothing can have run in it yet.
@@ -224,7 +226,7 @@ impl Capture<'_> {
             });
         }
         let process = rex.terminal_process(session_id, block_id)?;
-        let last_command = match self.local.recorder.read(block_id)? {
+        let last_command = match self.context.recorder.read(block_id)? {
             Recorded::LastCommand(command) => Some(command),
             Recorded::NoLastCommand => None,
             Recorded::Nothing => foreground::foreground_command(&process)?,
@@ -235,7 +237,7 @@ impl Capture<'_> {
             last_command,
             scrollback: None,
         };
-        let has_scrollback = !self.local.no_scrollback.running_in(&process);
+        let has_scrollback = !self.context.no_scrollback.running_in(&process);
         self.scrollback.push(has_scrollback.then(|| {
             ScrollbackSource::Terminal(BlockRef {
                 session_id: session_id.clone(),
@@ -245,9 +247,9 @@ impl Capture<'_> {
         Ok(saved)
     }
 
-    /// [`Local::plain_shell`]: no scrollback.
+    /// [`CaptureContext::plain_shell`]: no scrollback.
     fn plain_shell(&mut self) -> SavedBlock {
         self.scrollback.push(None);
-        self.local.plain_shell()
+        self.context.plain_shell()
     }
 }

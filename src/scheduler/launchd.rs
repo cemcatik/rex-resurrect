@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::{Job, Scheduler};
+use crate::account;
 use crate::error::{Context, Error, Result};
-use crate::workdir;
 
 /// The autosave agent's label: its name in launchd and its plist's file name.
 const LABEL: &str = "io.github.cemcatik.rex-resurrect.autosave";
@@ -37,7 +37,7 @@ impl Launchd {
     pub fn from_env() -> Result<Launchd> {
         let agents_dir = match std::env::var_os(AGENTS_DIR_VAR).filter(|v| !v.is_empty()) {
             Some(dir) => PathBuf::from(dir),
-            None => workdir::home()?.join("Library/LaunchAgents"),
+            None => account::home()?.join("Library/LaunchAgents"),
         };
         let label = match std::env::var(LABEL_VAR) {
             Ok(label) if !label.is_empty() => label,
@@ -214,8 +214,6 @@ fn launchctl_ok(args: &[&str]) -> Result<()> {
 }
 
 fn current_uid() -> u32 {
-    unsafe extern "C" {
-        safe fn getuid() -> u32;
-    }
-    getuid()
+    // SAFETY: getuid can't fail and has no preconditions.
+    unsafe { libc::getuid() }
 }

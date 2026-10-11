@@ -1,8 +1,20 @@
-//! The user's account, as the system's user database (passwd) records it.
+//! The user's account: their home directory, and their login name and shell
+//! as the system's user database (passwd) records them.
 
 use std::ffi::{CStr, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
+
+use crate::error::{Error, Result};
+
+/// The user's home directory (`$HOME`, else their passwd entry's): where a
+/// block starts when it has no usable working directory, and where the Rex
+/// app's server socket and LaunchAgents live.
+pub fn home() -> Result<PathBuf> {
+    std::env::home_dir()
+        .filter(|home| home.is_absolute())
+        .ok_or_else(|| Error::new("can't find the home directory: set HOME"))
+}
 
 /// The user's login name and login shell: who and what Rex starts each
 /// block's shell as. Rex uses the passwd entry, not `$USER` or `$SHELL`.

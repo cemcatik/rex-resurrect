@@ -5,6 +5,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use crate::account;
 use crate::create;
 use crate::error::{Context, Error, Result};
 use crate::instance::RestoreLock;
@@ -17,7 +18,6 @@ use crate::scrollback::Replay;
 use crate::snapshot::{SavedBlock, SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
-use crate::workdir;
 
 #[derive(Debug, Default)]
 pub struct RestoreOptions {
@@ -228,7 +228,7 @@ fn restore_sessions(
         return Ok(RestoreReport::default());
     };
     let selected = selected_sessions(&snapshot, options)?;
-    let home = workdir::home()?;
+    let home = account::home()?;
     let live_sessions = rex.list_sessions()?;
     let mut lineages = LineageMap::load(state)?;
     let mut live: HashMap<Lineage, String> = live_sessions

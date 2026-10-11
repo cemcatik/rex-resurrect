@@ -8,14 +8,6 @@ use crate::error::{Error, Result};
 use crate::rex::Rex;
 use crate::rex::api::TerminalProcess;
 
-/// The user's home directory: where a block starts when it has no usable
-/// working directory.
-pub fn home() -> Result<PathBuf> {
-    std::env::home_dir()
-        .filter(|home| home.is_absolute())
-        .ok_or_else(|| Error::new("can't find the home directory: set HOME"))
-}
-
 /// Where the block's shell is: what it last reported through the terminal
 /// `pwd` method, or, while it hasn't reported anything, the foreground
 /// process's directory from what its terminal `process` method answered

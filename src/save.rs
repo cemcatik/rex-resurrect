@@ -118,7 +118,8 @@ fn save_snapshot(
     // snapshot's name as the walk reaches it.
     let taken_at = Timestamp::now();
     let lineages = LineageMap::load(state)?;
-    let local = capture::Local::read(rex, state, taken_at, restored, settings.no_scrollback)?;
+    let context =
+        capture::CaptureContext::read(rex, state, taken_at, restored, settings.no_scrollback)?;
     let mut live = Live::new();
     let mut sessions = Vec::new();
     for summary in rex.list_sessions()? {
@@ -126,10 +127,11 @@ fn save_snapshot(
         live.add(&view);
         let lineage = lineages.lineage_of(&view.session_id);
         let saving = || format!("saving session {:?} ({})", view.label, view.session_id);
-        let captured = capture::saved_session(rex, &local, &view, lineage).with_context(saving)?;
-        if worth_saving(&captured.saved, &local.home) {
+        let captured =
+            capture::saved_session(rex, &context, &view, lineage).with_context(saving)?;
+        if worth_saving(&captured.saved, &context.home) {
             let saved = captured
-                .with_scrollback(rex, &local.scrollback)
+                .with_scrollback(rex, &context.scrollback)
                 .with_context(saving)?;
             sessions.push(saved);
         }

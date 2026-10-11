@@ -21,6 +21,7 @@ use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::account;
 use crate::error::{Context, Error, Result};
 use crate::instance::RestoreLock;
 use crate::log::Log;
@@ -29,7 +30,6 @@ use crate::restore;
 use crate::rex::Rex;
 use crate::rex::server_process::{self, ServerProcess, Starter};
 use crate::state::{STATE_DIR_VAR, StateDir};
-use crate::workdir;
 
 #[derive(Debug, Default)]
 pub struct AutoRestoreOptions {
@@ -179,7 +179,7 @@ struct Ready {
 /// out to be another server's.
 fn wait_until_ready(server: &ServerProcess, timeout: Duration) -> Result<Ready> {
     let deadline = Instant::now() + timeout;
-    let mut candidates = server.candidate_endpoints(&workdir::home()?);
+    let mut candidates = server.candidate_endpoints(&account::home()?);
     let mut other_servers = Vec::new();
     loop {
         let mut not_ready = Vec::new();

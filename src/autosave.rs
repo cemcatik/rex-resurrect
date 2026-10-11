@@ -8,6 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use crate::account;
 use crate::error::{Context, Error, Result};
 use crate::log::Log;
 use crate::retention::{KEEP_VAR, Retention};
@@ -15,7 +16,6 @@ use crate::rex;
 use crate::scheduler::{self, Interval, Job};
 use crate::scrollback::NO_SCROLLBACK_VAR;
 use crate::state::{STATE_DIR_VAR, StateDir};
-use crate::workdir;
 
 #[derive(Debug)]
 pub enum AutosaveCommand {
@@ -88,7 +88,7 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
 fn job_env(state: &StateDir) -> Result<BTreeMap<String, String>> {
     let server = match std::env::var_os(rex::SERVER_VAR).filter(|s| !s.is_empty()) {
         Some(server) => utf8(&server)?,
-        None => rex::app_server_endpoint(&workdir::home()?),
+        None => rex::app_server_endpoint(&account::home()?),
     };
     let mut env = BTreeMap::new();
     env.insert(rex::SERVER_VAR.to_string(), server);
