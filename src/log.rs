@@ -1,8 +1,9 @@
 //! rex-resurrect's log: `rex-resurrect.log` in the state directory.
 //!
 //! `save` and `restore` append their failures here, one timestamped line
-//! each, so a failed autosave (or auto-restore), which nobody watches, can
-//! still be diagnosed. Successful runs write nothing.
+//! each, so a failed autosave, which nobody watches, can still be diagnosed.
+//! Successful runs write nothing, except auto-restore, which nobody watches
+//! either and logs every outcome.
 
 use std::fmt::Display;
 use std::fs::OpenOptions;

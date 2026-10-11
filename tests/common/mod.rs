@@ -24,10 +24,13 @@
 //!
 //! Seams for later tests:
 //! - recorder: `TestEnv::builder().zshrc_line("source …").build()`;
-//! - custom init.lua: `env.server().init_lua("…").start()`;
+//! - custom init.lua: `env.server().init_lua("…").start()`; a server whose
+//!   init.lua keeps it from being ready: `.start_without_waiting()`, then
+//!   [`Server::wait_until_ready`];
 //! - stub `rex`: [`RexStub`], put first on one run's `PATH` with
 //!   `env.resurrect(&server).path_prepend(stub.dir())` (the harness itself
-//!   always uses the real `rex`, see [`server::rex_bin`]).
+//!   always uses the real `rex`, see [`server::rex_bin`]); a slow one:
+//!   [`stub::slow_rex`].
 
 #![allow(dead_code, unused_imports)]
 

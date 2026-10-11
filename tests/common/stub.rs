@@ -70,7 +70,22 @@ exec {real_rex} "$@"
     )
 }
 
+/// A directory holding a `rex` that sleeps `seconds` before every call to
+/// `method`, then runs the real `rex`. Put it first on a run's `PATH` to make
+/// a restore slow enough to overlap with another run.
+pub fn slow_rex(env: &TestEnv, method: &str, seconds: f64) -> PathBuf {
+    let dir = env.mkdir("slow-rex");
+    let script = format!(
+        "#!/bin/sh\nfor arg in \"$@\"; do\n  [ \"$arg\" = {method} ] && sleep {seconds}\ndone\nexec {} \"$@\"\n",
+        sh_quote(rex_bin())
+    );
+    let rex = dir.join("rex");
+    std::fs::write(&rex, script).unwrap();
+    std::fs::set_permissions(&rex, std::fs::Permissions::from_mode(0o755)).unwrap();
+    dir
+}
+
 /// `path` as one single-quoted shell word.
-fn sh_quote(path: &Path) -> String {
+pub fn sh_quote(path: &Path) -> String {
     format!("'{}'", path.to_str().unwrap().replace('\'', r"'\''"))
 }

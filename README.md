@@ -10,7 +10,8 @@ needs nothing else at runtime.
 > each window's split layout and ratios, window and block labels you set, each block's working
 > directory, each block's earlier output above its prompt, and each block's last command typed
 > at that prompt: the one the zsh recorder recorded or, without one, the program that was
-> running in the block. Autosave runs `save` every 15 minutes. Auto-restore is coming.
+> running in the block. Autosave runs `save` every 15 minutes, and auto-restore runs `restore`
+> when the Rex server starts.
 
 ## Install
 
@@ -172,7 +173,8 @@ say so.
 
 Every failure of `save` or `restore`, including each session that fails to restore, is also
 appended to `rex-resurrect.log` in the state directory, one line per failure starting with a
-UTC timestamp. Successful runs write nothing there.
+UTC timestamp. Successful runs write nothing there, except auto-restore, which logs every
+outcome (see [Auto-restore](#auto-restore)).
 
 ### Which server
 
@@ -195,9 +197,9 @@ its last command. Each save that writes a snapshot then removes the `recorder/` 
 blocks that no longer exist and the `lineage.json` entries of sessions that no longer exist, so
 the directory doesn't grow forever. A save that fails or writes nothing removes nothing.
 `scrollback/` holds each snapshot's block scrollback, which goes when its snapshot goes; a block
-with 50,000 lines of output takes about 340 KB per snapshot. `rex-resurrect.log` is the failure
-log. The recorder finds the state directory the same way, so set `REX_RESURRECT_STATE_DIR` (if
-you use it) where both your shells and rex-resurrect see it.
+with 50,000 lines of output takes about 340 KB per snapshot. `rex-resurrect.log` is the log of
+failures and auto-restore outcomes. The recorder finds the state directory the same way, so set
+`REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
 
 Snapshots, scrollback and recorder files hold commands, and commands can hold secrets, so the
 state directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
@@ -250,8 +252,56 @@ every interval), and look in `rex-resurrect.log` for failures.
 
 ## Auto-restore
 
-Not available yet. A line in Rex's `init.lua` will run `restore` once each time the Rex server
-starts; this section will show that line, and how to remove it.
+Auto-restore runs `restore` by itself once each time the Rex server starts, so your sessions come
+back after a crash, an update or a reboot without you doing anything. It's one line in Rex's
+`init.lua`, which is `~/.config/rex/init.lua` unless you've moved it (`rex config check` shows
+where yours is).
+
+**To turn it on**, add the line. This appends it, with the full path of `rex-resurrect`:
+
+```sh
+mkdir -p ~/.config/rex &&
+  echo "os.execute([['$(command -v rex-resurrect)' auto-restore]])" >> ~/.config/rex/init.lua
+```
+
+The line reads `os.execute([['/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`. Keep the full
+path: the Rex app starts its server with a bare `PATH`, so a plain `rex-resurrect` isn't found.
+
+**To turn it off**, delete that line. `autosave uninstall` reminds you to.
+
+The server runs `init.lua` when it starts, and again on every `rex config reload`. The line starts
+`rex-resurrect auto-restore`, which returns at once, because the server can't answer anything
+until `init.lua` has finished, and carries on in the background:
+
+- It waits for the server to be ready, then restores the latest snapshot into it the way
+  `restore` does. Saved sessions whose lineage is live are skipped, so nothing is duplicated.
+- It restores once per server instance. On a config reload, or on a server that `restore` or a
+  `save` already restored into (see [Usage](#usage)), it restores nothing, so sessions you killed
+  stay gone. Adding the line and running `rex config reload` restores into the running server
+  only if nothing has restored into it yet.
+- It restores into the server that ran `init.lua`, even one started from inside another server's
+  block, whose `REX_SERVER` that server inherits. It reads the server's endpoint from the server
+  process's command line, uses it only once the server there reports the right process ID, and
+  then names it explicitly in every call. It runs the `rex` that the server itself runs.
+- It's silent. Its output is discarded, and each run adds one line to `rex-resurrect.log` saying
+  which server it restored into and what it created and skipped, that there was nothing to do,
+  or why it gave up, plus a line for each session that failed. If the server isn't ready within
+  60 seconds, it gives up and logs that. Set `REX_RESURRECT_READY_TIMEOUT` (seconds) in the
+  server's environment, or in the line, to wait longer.
+- The Rex app may create a session of its own when it finds the server empty. Auto-restore
+  leaves it alone, and while it's untouched `save` never saves it.
+
+It runs in the Rex server's environment, not your shell's. If you set `REX_RESURRECT_STATE_DIR`
+for your shells, the server most likely doesn't have it, so put it in the line:
+`os.execute([[REX_RESURRECT_STATE_DIR=/path/to/state '/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`.
+
+`rex config check` runs `init.lua` too. There auto-restore says it wasn't started by a Rex server
+and does nothing. Any other Rex server that reads the same `init.lua` (one you start by hand with
+`rex server run` and no `--config`, say) gets your sessions restored into it too.
+
+If auto-restore can't tell which endpoint is the server's (one containing a space that isn't
+percent-encoded; Rex's own endpoints are encoded), it gives up and logs that rather than restore
+into any other server.
 
 ## Development
 

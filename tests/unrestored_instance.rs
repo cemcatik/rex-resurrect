@@ -8,9 +8,7 @@
 
 mod common;
 
-use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
-
+use common::stub::slow_rex;
 use common::*;
 
 fn sorted_labels(server: &Server) -> Vec<String> {
@@ -28,21 +26,6 @@ fn saved_on_an_earlier_server(env: &TestEnv, labels: &[&str]) {
         server.wait_for_pwds(&fixture);
     }
     env.save(&server);
-}
-
-/// A directory holding a `rex` that sleeps `seconds` before every call to
-/// `method`, then runs the real `rex`. Put it first on a run's `PATH` to make
-/// a restore slow enough to overlap with another run.
-fn slow_rex(env: &TestEnv, method: &str, seconds: f64) -> PathBuf {
-    let dir = env.mkdir("slow-rex");
-    let script = format!(
-        "#!/bin/sh\nfor arg in \"$@\"; do\n  [ \"$arg\" = {method} ] && sleep {seconds}\ndone\nexec '{}' \"$@\"\n",
-        common::server::rex_bin().display()
-    );
-    let rex = dir.join("rex");
-    std::fs::write(&rex, script).unwrap();
-    std::fs::set_permissions(&rex, std::fs::Permissions::from_mode(0o755)).unwrap();
-    dir
 }
 
 #[test]
