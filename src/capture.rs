@@ -1,5 +1,7 @@
 //! Turning a live session (its `session.view`) into a saved session.
 
+use std::path::PathBuf;
+
 use crate::error::{Error, Result};
 use crate::lineage::Lineage;
 use crate::rex::Rex;
@@ -7,13 +9,39 @@ use crate::rex::api::{BlockView, LayerView, LayoutView, SessionView, WindowView}
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedSplit, SavedWindow};
 use crate::workdir;
 
-pub fn saved_session(rex: &Rex, view: &SessionView, lineage: Lineage) -> Result<SavedSession> {
-    let mut windows = Vec::new();
-    for window in &view.windows {
-        if let Some(saved) = saved_window(rex, view, window)? {
-            windows.push(saved);
+/// What save needs to know about the machine it runs on.
+pub struct Local {
+    /// Where a block with no working directory to save comes back.
+    pub home: PathBuf,
+}
+
+impl Local {
+    pub fn read() -> Result<Local> {
+        Ok(Local {
+            home: workdir::home()?,
+        })
+    }
+
+    /// A plain shell block in the home directory: what a block that can't be
+    /// saved as it is comes back as, so the layout around it stays intact.
+    fn plain_shell(&self) -> SavedBlock {
+        SavedBlock {
+            working_directory: self.home.clone(),
         }
     }
+}
+
+pub fn saved_session(
+    rex: &Rex,
+    local: &Local,
+    view: &SessionView,
+    lineage: Lineage,
+) -> Result<SavedSession> {
+    let windows = view
+        .windows
+        .iter()
+        .map(|window| saved_window(rex, local, view, window))
+        .collect::<Result<_>>()?;
     Ok(SavedSession {
         lineage,
         label: view.label.clone(),
@@ -21,25 +49,26 @@ pub fn saved_session(rex: &Rex, view: &SessionView, lineage: Lineage) -> Result<
     })
 }
 
-/// A window's tiled layout. `None` for a window with nothing tiled (every
-/// block floated). Floating layers aren't saved.
+/// A window's tiled layout. Floating layers aren't saved. A window whose
+/// blocks have all floated away has nothing tiled; it comes back holding one
+/// plain shell, so it keeps its place among the session's windows.
 fn saved_window(
     rex: &Rex,
+    local: &Local,
     session: &SessionView,
     window: &WindowView,
-) -> Result<Option<SavedWindow>> {
+) -> Result<SavedWindow> {
     let tiled = window.tiled_layer().ok_or_else(|| {
         Error::new(format!(
             "session.view: window {} has no tiled layer",
             window.window_id
         ))
     })?;
-    let Some(layout) = &tiled.layout else {
-        return Ok(None);
+    let layout = match &tiled.layout {
+        Some(layout) => saved_layout(rex, session, tiled, layout)?,
+        None => SavedLayout::Block(local.plain_shell()),
     };
-    Ok(Some(SavedWindow {
-        layout: saved_layout(rex, session, tiled, layout)?,
-    }))
+    Ok(SavedWindow { layout })
 }
 
 fn saved_layout(

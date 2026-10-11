@@ -33,11 +33,12 @@ pub fn run(options: &SaveOptions) -> Result<ExitCode> {
 
 pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved> {
     let lineages = LineageMap::load(state)?;
+    let local = capture::Local::read()?;
     let mut sessions = Vec::new();
     for summary in rex.list_sessions()? {
         let view = rex.view_session(&summary.session_id)?;
         let lineage = lineages.lineage_of(&view.session_id);
-        let saved = capture::saved_session(rex, &view, lineage)
+        let saved = capture::saved_session(rex, &local, &view, lineage)
             .with_context(|| format!("saving session {:?} ({})", view.label, view.session_id))?;
         sessions.push(saved);
     }
