@@ -17,6 +17,7 @@
 
 use std::os::unix::fs::DirBuilderExt;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 use crate::error::{Context, Error, Result};
 use crate::state::{self, StateDir};
@@ -64,10 +65,15 @@ impl RecorderFiles {
         std::fs::rename(&tmp, &path).with_context(|| format!("writing {}", path.display()))
     }
 
-    /// Removes the records of blocks `is_live` says aren't live. Leaves alone
-    /// temporary files (named `.…`), which a recorder may be about to rename
-    /// over a record, and anything that isn't a file.
-    pub fn retain_live(&self, is_live: impl Fn(&str) -> bool) -> Result<()> {
+    /// Removes the records of blocks `is_live` says aren't live, unless they
+    /// changed at or after `kept_since`. Leaves alone temporary files (named
+    /// `.…`), which a recorder may be about to rename over a record, and
+    /// anything that isn't a file.
+    pub fn retain_live(
+        &self,
+        is_live: impl Fn(&str) -> bool,
+        kept_since: SystemTime,
+    ) -> Result<()> {
         let listing = || format!("listing {}", self.dir.display());
         let entries = match std::fs::read_dir(&self.dir) {
             Ok(entries) => entries,
@@ -83,7 +89,11 @@ impl RecorderFiles {
             let Some(path) = self.file(block_id) else {
                 continue;
             };
-            if is_live(block_id) || !entry.file_type().with_context(listing)?.is_file() {
+            if is_live(block_id) {
+                continue;
+            }
+            let metadata = entry.metadata().with_context(listing)?;
+            if !metadata.is_file() || metadata.modified().with_context(listing)? >= kept_since {
                 continue;
             }
             match std::fs::remove_file(&path) {

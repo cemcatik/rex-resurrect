@@ -9,7 +9,8 @@
 
 mod common;
 
-use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 use common::*;
 
@@ -67,6 +68,61 @@ fn a_save_that_fails_to_write_its_snapshot_removes_no_recorder_files() {
 
     env.resurrect(&server).arg("save").run().assert_failure();
     assert!(recorder_file(&env, &gone_block).exists());
+}
+
+/// Writes a stand-in `rex` that passes every call to the real one and, each
+/// time `session.list` has answered, writes `recorder` as a recorder would
+/// for a block that appeared just then. Returns the directory holding it.
+/// Put it first on rex-resurrect's `PATH`.
+fn stub_rex_recording_after_session_list(env: &TestEnv, recorder: &Path) -> PathBuf {
+    let quoted = |p: &Path| {
+        let s = p.to_str().unwrap();
+        assert!(!s.contains('\''), "can't quote {s:?} for sh");
+        format!("'{s}'")
+    };
+    let script = format!(
+        r#"#!/bin/sh
+# Stand-in rex for one rex-resurrect test (see tests/pruning.rs).
+{rex} "$@"
+status=$?
+case " $* " in
+  *" session.list "*) echo 'echo zz-new' > {recorder} ;;
+esac
+exit $status
+"#,
+        rex = quoted(common::server::rex_bin()),
+        recorder = quoted(recorder),
+    );
+    let dir = env.mkdir("stub-rex");
+    let stub = dir.join("rex");
+    std::fs::write(&stub, script).unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    dir
+}
+
+#[test]
+fn a_recorder_file_written_while_a_save_runs_is_kept() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    session_with_one_block(&env, &server, "zz-live");
+    // Restores into this server instance, so the next save doesn't.
+    env.save(&server);
+    // A block that appeared after the save read the server, and recorded a
+    // command before the save finished.
+    let new_block = recorder_file(&env, "block:zz-new");
+    std::fs::create_dir_all(new_block.parent().unwrap()).unwrap();
+    let stub = stub_rex_recording_after_session_list(&env, &new_block);
+
+    let out = env
+        .resurrect(&server)
+        .path_prepend(stub)
+        .arg("save")
+        .run()
+        .assert_success();
+    assert!(
+        new_block.exists(),
+        "the new block's record was removed: {out}"
+    );
 }
 
 /// Whether rex-resurrect's lineage map mentions `session_id` at all.
