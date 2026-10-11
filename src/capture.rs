@@ -9,17 +9,32 @@ use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionVie
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedSplit, SavedWindow};
 use crate::workdir;
 
-/// What save needs to know about the machine it runs on.
+/// What save compares blocks against: the local server and home directory.
 pub struct Local {
+    /// The local server's host. A block with a different `host_id` is a
+    /// remote block.
+    pub host_id: String,
     /// Where a block with no working directory to save comes back.
     pub home: PathBuf,
 }
 
 impl Local {
-    pub fn read() -> Result<Local> {
+    pub fn read(rex: &Rex) -> Result<Local> {
         Ok(Local {
+            host_id: rex.server_status()?.host_id,
             home: workdir::home()?,
         })
+    }
+
+    /// A shell block on the local server: the only kind of block whose
+    /// working directory save can read. A block without a `host_id` counts
+    /// as local.
+    fn is_local_shell(&self, block: &BlockView) -> bool {
+        block.flavor == SHELL_FLAVOR
+            && block
+                .host_id
+                .as_deref()
+                .is_none_or(|host_id| host_id == self.host_id)
     }
 
     /// A plain shell block in the home directory: what a block that can't be
@@ -96,15 +111,16 @@ fn saved_layout(
     }
 }
 
-/// A shell block in its working directory. Any other block has no working
-/// directory to read, so it's saved as a plain shell in the home directory.
+/// A local shell block in its working directory. A non-terminal block has no
+/// working directory, and a remote block's is on another host, so either is
+/// saved as a plain shell in the home directory.
 fn saved_block(
     rex: &Rex,
     local: &Local,
     session: &SessionView,
     block: &BlockView,
 ) -> Result<SavedBlock> {
-    if block.flavor != SHELL_FLAVOR {
+    if !local.is_local_shell(block) {
         return Ok(local.plain_shell());
     }
     Ok(SavedBlock {

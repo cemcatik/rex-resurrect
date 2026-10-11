@@ -225,6 +225,14 @@ fn a_non_terminal_block_is_saved_as_a_plain_shell_in_the_home_directory() {
 }
 
 #[test]
+fn a_block_on_another_host_is_saved_as_a_plain_shell_in_the_home_directory() {
+    // Still a shell block, but its `host_id` isn't the local server's.
+    assert_saved_as_a_plain_shell_in_home("zz-remote", |block| {
+        block["host_id"] = json!("9f4c2a1e-0000-4000-8000-00000000beef");
+    });
+}
+
+#[test]
 fn a_block_whose_directory_was_deleted_restores_in_the_home_directory() {
     let env = TestEnv::new();
     let server = env.start_server();
