@@ -12,7 +12,8 @@ use crate::log;
 use crate::recorder::RecorderFiles;
 use crate::rex::Rex;
 use crate::rex::api::CreatedSession;
-use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, Snapshot};
+use crate::scrollback::Replay;
+use crate::snapshot::{SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 use crate::workdir;
@@ -188,6 +189,7 @@ fn restore_sessions(
         .collect();
     lineages.retain_live(|id| live_sessions.iter().any(|s| s.session_id == id));
     let recorder = RecorderFiles::new(state);
+    let replay = Replay::new(state);
 
     let mut report = RestoreReport {
         had_snapshot: true,
@@ -207,7 +209,7 @@ fn restore_sessions(
             report.outcomes.push(Outcome::WouldCreate { label });
             continue;
         }
-        match rex.create_session(&create::create_request(saved, &home)) {
+        match rex.create_session(&create::create_request(saved, &home, &replay)) {
             Ok(created) => {
                 lineages.record(&created.session_id, saved.lineage.clone());
                 lineages.save().with_context(|| {
@@ -287,8 +289,8 @@ fn selected_sessions<'a>(
 /// records a new one.
 ///
 /// `session.create` returns each window's block IDs in layout order
-/// (depth-first, `before` then `after`), the order `layout_blocks` walks the
-/// saved layout in.
+/// (depth-first, `before` then `after`), the order `SavedLayout::blocks`
+/// walks the saved layout in.
 fn carry_forward(
     recorder: &RecorderFiles,
     saved: &SavedSession,
@@ -307,7 +309,7 @@ fn carry_forward(
         .zip(&created.initial_windows)
         .enumerate()
     {
-        let blocks = layout_blocks(&window.layout);
+        let blocks = window.layout.blocks();
         if blocks.len() != created_window.block_ids.len() {
             return Err(Error::new(format!(
                 "session.create returned {} block IDs for window {i}, which has {} saved blocks",
@@ -322,16 +324,4 @@ fn carry_forward(
         }
     }
     Ok(())
-}
-
-/// A layout's blocks in depth-first, `before`-then-`after` order.
-fn layout_blocks(layout: &SavedLayout) -> Vec<&SavedBlock> {
-    match layout {
-        SavedLayout::Block(block) => vec![block],
-        SavedLayout::Split(split) => {
-            let mut blocks = layout_blocks(&split.before);
-            blocks.extend(layout_blocks(&split.after));
-            blocks
-        }
-    }
 }

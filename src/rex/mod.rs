@@ -25,8 +25,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use api::{
-    CreateSession, CreatedSession, ServerStatus, SessionList, SessionSummary, SessionView,
-    TerminalProcess, TerminalPwd,
+    CreateSession, CreatedSession, FormatArgs, ServerStatus, SessionList, SessionSummary,
+    SessionView, TerminalFormat, TerminalProcess, TerminalPwd,
 };
 
 /// The variable naming the Rex server to talk to. Rex sets it in every
@@ -243,6 +243,17 @@ impl Rex {
         block_id: &str,
     ) -> Result<TerminalProcess, RexError> {
         self.block_method(session_id, block_id, "process", json!({}))
+    }
+
+    /// The terminal `format` method: the block's scrollback and screen.
+    pub fn terminal_format(
+        &self,
+        session_id: &str,
+        block_id: &str,
+        args: &FormatArgs,
+    ) -> Result<TerminalFormat, RexError> {
+        let args = serde_json::to_value(args).expect("format arguments serialize to JSON");
+        self.block_method(session_id, block_id, "format", args)
     }
 
     /// Calls a block method by its short name (`pwd`, `process`, `write`)

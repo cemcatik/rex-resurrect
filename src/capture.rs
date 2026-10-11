@@ -9,12 +9,15 @@ use crate::lineage::Lineage;
 use crate::recorder::RecorderFiles;
 use crate::rex::Rex;
 use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, WindowView};
+use crate::scrollback::{ScrollbackStore, SnapshotScrollback};
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedSplit, SavedWindow};
 use crate::state::StateDir;
+use crate::timestamp::Timestamp;
 use crate::workdir;
 
 /// What save compares blocks against and reads about them on this machine:
-/// the local server, the home directory and the recorder files.
+/// the local server, the home directory and the recorder files; and where
+/// it saves their scrollback.
 pub struct Local {
     /// The local server's host. A block with a different `host_id` is a
     /// remote block.
@@ -23,14 +26,18 @@ pub struct Local {
     pub home: PathBuf,
     /// Each local shell block's last command.
     pub recorder: RecorderFiles,
+    /// Where the snapshot this save writes keeps its blocks' scrollback.
+    pub scrollback: SnapshotScrollback,
 }
 
 impl Local {
-    pub fn read(rex: &Rex, state: &StateDir) -> Result<Local> {
+    /// `taken_at`: the time of the snapshot this save writes.
+    pub fn read(rex: &Rex, state: &StateDir, taken_at: Timestamp) -> Result<Local> {
         Ok(Local {
             host_id: rex.server_status()?.host_id,
             home: workdir::home()?,
             recorder: RecorderFiles::new(state),
+            scrollback: ScrollbackStore::new(state).for_snapshot(taken_at),
         })
     }
 
@@ -53,6 +60,7 @@ impl Local {
             label: None,
             working_directory: self.home.clone(),
             last_command: None,
+            scrollback: None,
         }
     }
 }
@@ -128,9 +136,9 @@ fn saved_layout(
 /// A local shell block in its working directory, with its recorder file as
 /// the source of truth for its last command. A block without one (its shell
 /// started before the recorder was installed) falls back to the program in
-/// its foreground. A non-terminal block has no working directory, and a
-/// remote block's is on another host, so either is saved as a plain shell in
-/// the home directory.
+/// its foreground. Its scrollback is saved too. A non-terminal block has no
+/// working directory, and a remote block's is on another host, so either is
+/// saved as a plain shell in the home directory.
 fn saved_block(
     rex: &Rex,
     local: &Local,
@@ -149,5 +157,6 @@ fn saved_block(
         label: label::user_set_block_label(block).map(str::to_owned),
         working_directory: workdir::working_directory(rex, session_id, block_id)?,
         last_command,
+        scrollback: local.scrollback.save(rex, session_id, block_id)?,
     })
 }

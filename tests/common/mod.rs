@@ -12,6 +12,9 @@
 //! - [`fixture`]: layouts to create (`window`, `hsplit`, `vsplit`, `shell`)
 //!   and [`Shape`], the comparable form of a layout Rex reports.
 //! - [`ResurrectCmd`]: one run of the binary with a scrubbed environment.
+//! - [`files`]: the state directory's files as seen from outside (modes,
+//!   total size), for privacy and retention checks that don't depend on
+//!   file names or formats.
 //!
 //! Safety: every child process gets an environment built from an allowlist,
 //! so `REX_BLOCK`, `REX_SESSION`, the real `REX_SERVER` and the user's XDG
@@ -32,6 +35,7 @@
 #![allow(dead_code, unused_imports)]
 
 pub mod env;
+pub mod files;
 pub mod fixture;
 pub mod resurrect;
 pub mod server;

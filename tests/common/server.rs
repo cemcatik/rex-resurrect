@@ -422,15 +422,34 @@ impl Server {
 
     /// `rex capture --trim --unwrap` of a block: its text, soft wraps joined.
     pub fn capture(&self, session_id: &str, block_id: &str) -> String {
+        self.capture_with(session_id, block_id, &["--trim", "--unwrap"])
+    }
+
+    /// `rex capture --trim` of a block: its text row by row, as wrapped at
+    /// the block's width.
+    pub fn capture_rows(&self, session_id: &str, block_id: &str) -> String {
+        self.capture_with(session_id, block_id, &["--trim"])
+    }
+
+    fn capture_with(&self, session_id: &str, block_id: &str, flags: &[&str]) -> String {
         let out = self
             .rex()
-            .args([
-                "capture", "-s", session_id, "-b", block_id, "--trim", "--unwrap",
-            ])
+            .args(["capture", "-s", session_id, "-b", block_id])
+            .args(flags)
             .output()
             .unwrap();
         assert_success("rex capture", &out);
         String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    /// Resizes a block. Until a client attaches, a block is 80x24.
+    pub fn resize(&self, session_id: &str, block_id: &str, columns: u32, rows: u32) {
+        self.block_method(
+            session_id,
+            block_id,
+            "resize",
+            json!({ "columns": columns, "rows": rows }),
+        );
     }
 
     /// Waits until a block's capture satisfies `pred`; returns that capture.

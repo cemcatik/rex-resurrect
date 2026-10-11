@@ -11,6 +11,7 @@ use crate::lineage::LineageMap;
 use crate::restore;
 use crate::retention::Retention;
 use crate::rex::Rex;
+use crate::scrollback::ScrollbackStore;
 use crate::snapshot::{SavedLayout, SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
@@ -66,10 +67,32 @@ pub fn save(
     rex: &Rex,
     state: &StateDir,
     retention: Retention,
+    options: &SaveOptions,
+) -> Result<Saved> {
+    let saved = save_snapshot(rex, state, retention, options);
+    // Scrollback is kept exactly as long as its snapshot: old snapshots'
+    // goes with them, and a save that wrote no snapshot (an empty server, a
+    // failure) leaves none behind.
+    let removed = SnapshotStore::new(state)
+        .list()
+        .and_then(|kept| ScrollbackStore::new(state).remove_orphans(&kept))
+        .with_context(|| "removing old scrollback");
+    let saved = saved?;
+    removed?;
+    Ok(saved)
+}
+
+fn save_snapshot(
+    rex: &Rex,
+    state: &StateDir,
+    retention: Retention,
     _options: &SaveOptions,
 ) -> Result<Saved> {
+    // Taken first: each block's scrollback is saved under the snapshot's
+    // name as the walk reaches it.
+    let taken_at = Timestamp::now();
     let lineages = LineageMap::load(state)?;
-    let local = capture::Local::read(rex, state)?;
+    let local = capture::Local::read(rex, state, taken_at)?;
     let mut live = Live::new();
     let mut sessions = Vec::new();
     for summary in rex.list_sessions()? {
@@ -80,12 +103,13 @@ pub fn save(
             .with_context(|| format!("saving session {:?} ({})", view.label, view.session_id))?;
         if worth_saving(&saved, &local.home) {
             sessions.push(saved);
+        } else {
+            local.scrollback.discard(&saved)?;
         }
     }
     if sessions.is_empty() {
         return Ok(Saved::EmptyServer);
     }
-    let taken_at = Timestamp::now();
     let snapshot = Snapshot::new(taken_at, sessions);
     snapshot
         .validate()
