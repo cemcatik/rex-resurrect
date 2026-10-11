@@ -7,6 +7,7 @@ mod create;
 mod error;
 mod lineage;
 mod restore;
+mod retention;
 mod rex;
 mod save;
 mod snapshot;

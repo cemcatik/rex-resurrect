@@ -36,6 +36,8 @@ Environment:
   REX_RESURRECT_STATE_DIR  Where snapshots and state live (default:
                            $XDG_STATE_HOME/rex-resurrect, else
                            ~/.local/state/rex-resurrect)
+  REX_RESURRECT_KEEP       How many snapshots save keeps, newest first
+                           (default: 10)
 ";
 
 #[derive(Debug)]

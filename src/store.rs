@@ -2,9 +2,11 @@
 //! - `snapshots/<UTC timestamp>.json`, one file per save;
 //! - `latest.json`, a symlink to the latest snapshot.
 
+use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use crate::error::{Context, Result};
+use crate::retention::Retention;
 use crate::snapshot::Snapshot;
 use crate::state::{self, StateDir};
 use crate::timestamp::Timestamp;
@@ -25,13 +27,23 @@ impl SnapshotStore {
         }
     }
 
-    /// Writes `snapshot` as a new timestamped file and points "latest" at it.
-    pub fn write(&self, snapshot: &Snapshot, taken_at: Timestamp) -> Result<PathBuf> {
+    /// Writes `snapshot` as a new timestamped file, points "latest" at it,
+    /// then removes the snapshots `retention` doesn't keep. "latest" always
+    /// points at a kept one.
+    pub fn write(
+        &self,
+        snapshot: &Snapshot,
+        taken_at: Timestamp,
+        retention: Retention,
+    ) -> Result<PathBuf> {
         let name = format!("{}.json", taken_at.compact());
         let path = self.snapshots.join(&name);
         let json = serde_json::to_vec_pretty(snapshot).expect("snapshots serialize");
         state::write_file(&path, &json)?;
         self.point_latest_at(&name)?;
+        retention
+            .prune(&self.snapshots, OsStr::new(&name), is_snapshot_file)
+            .with_context(|| "removing old snapshots")?;
         Ok(path)
     }
 
@@ -48,4 +60,11 @@ impl SnapshotStore {
     fn point_latest_at(&self, name: &str) -> Result<()> {
         state::write_symlink(&self.latest, &PathBuf::from(SNAPSHOTS_DIR).join(name))
     }
+}
+
+/// A snapshot's file name: `<timestamp>.json`. Not a hidden file, such as
+/// [`state::write_file`]'s temp files.
+fn is_snapshot_file(name: &OsStr) -> bool {
+    let name = name.to_string_lossy();
+    name.ends_with(".json") && !name.starts_with('.')
 }

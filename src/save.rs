@@ -6,6 +6,7 @@ use std::process::ExitCode;
 use crate::capture;
 use crate::error::{Context, Result};
 use crate::lineage::LineageMap;
+use crate::retention::Retention;
 use crate::rex::Rex;
 use crate::snapshot::{SavedSession, Snapshot};
 use crate::state::StateDir;
@@ -37,6 +38,7 @@ pub fn run(options: &SaveOptions) -> Result<ExitCode> {
 }
 
 pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved> {
+    let retention = Retention::from_env()?;
     let lineages = LineageMap::load(state)?;
     let mut sessions = Vec::new();
     for summary in rex.list_sessions()? {
@@ -57,7 +59,7 @@ pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved
         .validate()
         .with_context(|| "the snapshot failed validation, so nothing was written")?;
     state.make_private()?;
-    let path = SnapshotStore::new(state).write(&snapshot, taken_at)?;
+    let path = SnapshotStore::new(state).write(&snapshot, taken_at, retention)?;
     Ok(Saved::Snapshot {
         path,
         sessions: snapshot.sessions.len(),
