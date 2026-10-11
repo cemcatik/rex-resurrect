@@ -96,7 +96,20 @@ pub struct CreatedBlock {
 }
 
 impl RestoreReport {
-    pub fn failed(&self) -> usize {
+    /// Prints the report to `out`, logs each session that failed as a
+    /// failure of `command`, and returns how the run should exit: non-zero
+    /// if any session failed. Every command that restores ends this way.
+    pub fn finish(&self, state: &StateDir, command: &str, out: &mut impl Write) -> ExitCode {
+        let _ = self.print(out);
+        self.log_failures(state, command);
+        if self.failed() > 0 {
+            ExitCode::FAILURE
+        } else {
+            ExitCode::SUCCESS
+        }
+    }
+
+    fn failed(&self) -> usize {
         self.count(|o| matches!(o, Outcome::Failed { .. }))
     }
 
@@ -121,7 +134,7 @@ impl RestoreReport {
     }
 
     /// Appends each session that failed to the log, as a failure of `command`.
-    pub fn log_failures(&self, state: &StateDir, command: &str) {
+    fn log_failures(&self, state: &StateDir, command: &str) {
         for outcome in &self.outcomes {
             if let Outcome::Failed { label, error, .. } = outcome {
                 log::log_failure(state, command, &format!("session {label:?}: {error}"));
@@ -133,7 +146,7 @@ impl RestoreReport {
         self.outcomes.iter().filter(|o| pred(o)).count()
     }
 
-    pub fn print(&self, out: &mut impl Write) -> std::io::Result<()> {
+    fn print(&self, out: &mut impl Write) -> std::io::Result<()> {
         if !self.had_snapshot {
             return writeln!(out, "nothing to restore: no snapshot yet");
         }
@@ -172,13 +185,7 @@ pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
     let state = StateDir::from_env()?;
     let lock = RestoreLock::acquire(&state)?;
     let report = restore(&Rex::from_env(), &state, &lock, options)?;
-    let _ = report.print(&mut std::io::stdout().lock());
-    report.log_failures(&state, "restore");
-    Ok(if report.failed() > 0 {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    })
+    Ok(report.finish(&state, "restore", &mut std::io::stdout().lock()))
 }
 
 /// Restores into the server's current instance, unless rex-resurrect already

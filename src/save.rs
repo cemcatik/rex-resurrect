@@ -59,12 +59,12 @@ pub fn run() -> Result<ExitCode> {
     let rex = Rex::from_env();
     let state = StateDir::from_env()?;
     let lock = RestoreLock::acquire(&state)?;
-    let mut restored_first = restore::restore_unrestored_instance(&rex, &state, &lock)?;
+    let mut status = ExitCode::SUCCESS;
     let mut restored_blocks = CreatedBlocks::new();
-    if let Some(report) = &mut restored_first {
+    if let Some(mut report) = restore::restore_unrestored_instance(&rex, &state, &lock)? {
         println!("restored first: this server instance hadn't been restored into yet");
-        let _ = report.print(&mut std::io::stdout().lock());
-        report.log_failures(&state, "save (restoring first)");
+        let mut out = std::io::stdout().lock();
+        status = report.finish(&state, "save (restoring first)", &mut out);
         if report.every_attempt_failed() {
             return Err(Error::new(
                 "every session failed to restore into this server instance, so nothing was \
@@ -81,10 +81,7 @@ pub fn run() -> Result<ExitCode> {
             println!("nothing to save: no sessions worth saving; the latest snapshot is unchanged");
         }
     }
-    Ok(match restored_first {
-        Some(report) if report.failed() > 0 => ExitCode::FAILURE,
-        _ => ExitCode::SUCCESS,
-    })
+    Ok(status)
 }
 
 /// Saves every session worth saving. `restored`: the blocks a restore this

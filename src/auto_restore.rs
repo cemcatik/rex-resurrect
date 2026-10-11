@@ -145,14 +145,15 @@ fn restore_when_ready(pid: u32) -> Result<ExitCode> {
         .ok_or_else(|| Error::new(format!("there's no Rex server with pid {pid}")))?;
     let ready = wait_until_ready(&server, timeout)?;
     let lock = RestoreLock::acquire(&state)?;
-    let restored = restore::restore_unrestored_instance(&ready.rex, &state, &lock)?;
-    let outcome = match &restored {
-        None => "already restored into; nothing to do".to_string(),
+    let (outcome, status) = match restore::restore_unrestored_instance(&ready.rex, &state, &lock)? {
+        None => (
+            "already restored into; nothing to do".to_string(),
+            ExitCode::SUCCESS,
+        ),
         Some(report) => {
-            report.log_failures(&state, "auto-restore");
             let mut printed = Vec::new();
-            let _ = report.print(&mut printed);
-            String::from_utf8_lossy(&printed).into_owned()
+            let status = report.finish(&state, "auto-restore", &mut printed);
+            (String::from_utf8_lossy(&printed).into_owned(), status)
         }
     };
     let message = format!(
@@ -161,10 +162,7 @@ fn restore_when_ready(pid: u32) -> Result<ExitCode> {
     );
     println!("{message}");
     Log::new(&state).append(&message)?;
-    Ok(match restored {
-        Some(report) if report.failed() > 0 => ExitCode::FAILURE,
-        _ => ExitCode::SUCCESS,
-    })
+    Ok(status)
 }
 
 /// A server that's ready, reached at the endpoint it answered on.
