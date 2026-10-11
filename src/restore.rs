@@ -11,6 +11,7 @@ use crate::lineage::{Lineage, LineageMap};
 use crate::recorder::RecorderFiles;
 use crate::rex::Rex;
 use crate::rex::api::CreatedSession;
+use crate::scrollback::Replay;
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
@@ -177,6 +178,7 @@ fn restore_sessions(
         .collect();
     lineages.retain_live(|id| live_sessions.iter().any(|s| s.session_id == id));
     let recorder = RecorderFiles::new(state);
+    let replay = Replay::new(state);
 
     let mut report = RestoreReport {
         had_snapshot: true,
@@ -196,7 +198,7 @@ fn restore_sessions(
             report.outcomes.push(Outcome::WouldCreate { label });
             continue;
         }
-        match rex.create_session(&create::create_request(saved, &home)) {
+        match rex.create_session(&create::create_request(saved, &home, &replay)) {
             Ok(created) => {
                 lineages.record(&created.session_id, saved.lineage.clone());
                 lineages.save().with_context(|| {

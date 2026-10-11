@@ -84,4 +84,9 @@ pub struct SavedBlock {
     /// `create::typed_command`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_command: Option<String>,
+    /// The block's saved scrollback: a file's path relative to the state
+    /// directory (see `scrollback`). Absent for a block that was showing a
+    /// full-screen program, or had nothing to save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scrollback: Option<PathBuf>,
 }

@@ -1,6 +1,7 @@
 //! rex-resurrect: save Rex sessions and recreate them after the Rex server
 //! stops. Talks to Rex only through the `rex` CLI (see `rex`).
 
+mod account;
 mod capture;
 mod cli;
 mod create;
@@ -13,6 +14,7 @@ mod recorder;
 mod restore;
 mod rex;
 mod save;
+mod scrollback;
 mod snapshot;
 mod state;
 mod store;

@@ -9,6 +9,7 @@ use crate::instance::RestoreLock;
 use crate::lineage::LineageMap;
 use crate::restore;
 use crate::rex::Rex;
+use crate::scrollback::ScrollbackStore;
 use crate::snapshot::Snapshot;
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
@@ -52,8 +53,11 @@ pub fn run(options: &SaveOptions) -> Result<ExitCode> {
 }
 
 pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved> {
+    // Taken first: each block's scrollback is saved under the snapshot's
+    // name as the walk reaches it.
+    let taken_at = Timestamp::now();
     let lineages = LineageMap::load(state)?;
-    let local = capture::Local::read(rex, state)?;
+    let local = capture::Local::read(rex, state, taken_at)?;
     let mut sessions = Vec::new();
     for summary in rex.list_sessions()? {
         let view = rex.view_session(&summary.session_id)?;
@@ -62,9 +66,13 @@ pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved
             .with_context(|| format!("saving session {:?} ({})", view.label, view.session_id))?;
         sessions.push(saved);
     }
-    let taken_at = Timestamp::now();
     let snapshot = Snapshot::new(taken_at, sessions);
-    let path = SnapshotStore::new(state).write(&snapshot, taken_at)?;
+    let store = SnapshotStore::new(state);
+    let path = store.write(&snapshot, taken_at)?;
+    // Scrollback is kept exactly as long as its snapshot.
+    ScrollbackStore::new(state)
+        .remove_orphans(&store.list()?)
+        .with_context(|| "removing old scrollback")?;
     Ok(Saved {
         path,
         sessions: snapshot.sessions.len(),

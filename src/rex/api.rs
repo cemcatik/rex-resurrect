@@ -188,6 +188,29 @@ pub struct TerminalProcess {
     pub home: Option<PathBuf>,
 }
 
+/// Arguments of the terminal `format` method, which renders the block's
+/// scrollback and screen (not just the screen, whatever its description
+/// says). Only `format: "vt"` is used: text plus SGR styles, no cursor
+/// movement, modes or OSC sequences, so it's safe to print into a new block.
+#[derive(Debug, Default, Serialize)]
+pub struct FormatArgs {
+    pub format: &'static str,
+    /// Joins soft-wrapped rows into one line, so the text reflows at any
+    /// width instead of breaking where the block's width was.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unwrap: bool,
+    /// Prefixes the terminal's modes (`ESC[?1049h` while on the alternate
+    /// screen). Only has an effect with `format: "vt"`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub extra_modes: bool,
+}
+
+/// The terminal `format` method. CRLF line endings, no final newline.
+#[derive(Debug, Deserialize)]
+pub struct TerminalFormat {
+    pub content: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ProcessInfo {
     pub pid: u32,
@@ -253,6 +276,15 @@ pub struct TerminalOptions {
     /// Written to the terminal as if typed. A newline acts as Enter.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_input: Option<String>,
+    /// What the block runs instead of the user's shell. Rex wraps it in a
+    /// login shell unless `shell` is `"none"` and `login` is `false`; with
+    /// both, Rex runs this argv as it is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub login: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
