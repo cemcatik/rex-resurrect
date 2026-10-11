@@ -68,8 +68,10 @@ fn a_session_with_one_shell_in_home_default_labels_and_no_last_command_isnt_save
 }
 
 /// A second block or window, a user-set window or block label, a working
-/// directory other than home (even one below it), or a last command: each
-/// session here differs from an untouched one in one of these ways only.
+/// directory other than home (even one below it), or a last command, whether
+/// recorded or the program in the foreground of a block with no record: each
+/// session here differs from an untouched one in one of these ways only. (A
+/// last command restore carried forward is covered further down.)
 #[test]
 fn any_one_change_from_untouched_gets_a_session_saved() {
     let env = env_with_own_home();
@@ -90,19 +92,24 @@ fn any_one_change_from_untouched_gets_a_session_saved() {
             &[window(shell_in_home().labeled("server"))],
         ),
         server.create_session("zz-below-home", &[window(shell(&projects))]),
-        server.create_session("zz-last-command", &[in_home()]),
+        server.create_session("zz-recorded", &[in_home()]),
+        server.create_session("zz-foreground", &[in_home()]),
     ];
     for session in &sessions {
         server.wait_for_pwds(session);
     }
     env.write_recorder_file(sessions[6].block_ids()[0], "make test");
+    let (foreground, block) = (&sessions[7].id, sessions[7].block_ids()[0]);
+    server.run(foreground, block, "tail -n 0 -f /dev/null");
+    server.wait_for_foreground(foreground, block, "tail");
 
     assert_eq!(
         labels_saved(&env, &server),
         [
             "zz-below-home",
             "zz-block-label",
-            "zz-last-command",
+            "zz-foreground",
+            "zz-recorded",
             "zz-two-blocks",
             "zz-two-windows",
             "zz-window-label",
