@@ -265,6 +265,37 @@ fn scrollback_is_private_and_kept_only_as_long_as_its_snapshot() {
     );
 }
 
+/// Also measures how long the save takes (shown with `--nocapture`), to
+/// check that scheduled saves stay fast with a long scrollback.
+#[test]
+fn a_block_with_50000_lines_of_scrollback_comes_back_in_full() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let fixture = server.create_session("zz-50k", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    let seq = "seq 1 50000";
+    server.run(&fixture.id, block, seq);
+    server.wait_for_capture(&fixture.id, block, "the whole sequence", |c| {
+        c.contains("\n50000\n")
+    });
+
+    let started = std::time::Instant::now();
+    env.save(&server);
+    eprintln!("save with a 50,000-line block took {:?}", started.elapsed());
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-50k");
+    let block = server.block_ids(&restored).remove(0);
+    server.wait_for_typed(&restored, &block, seq);
+    let history = history(&server.capture(&restored, &block)).join("\n");
+    assert!(
+        history.contains("\n1\n2\n3\n") && history.contains("\n49999\n50000\n"),
+        "the whole sequence is above the prompt"
+    );
+}
+
 #[test]
 fn a_block_running_a_program_on_the_main_screen_keeps_its_scrollback() {
     let env = TestEnv::with_recorder();
