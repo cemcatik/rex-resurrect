@@ -1,7 +1,7 @@
 //! Snapshot files on disk: private to the user, and only the newest kept.
 //!
-//! These tests look at the state directory's files (their modes, how many
-//! snapshots there are), never inside them.
+//! The privacy test looks at the modes of the state directory's files, never
+//! inside them. Retention is observed through `list`.
 
 mod common;
 
@@ -12,17 +12,21 @@ use common::*;
 
 const KEEP_VAR: &str = "REX_RESURRECT_KEEP";
 
-/// How many snapshots the state directory holds. The one place tests look at
-/// where snapshots live (until `rex-resurrect list` can say); it counts the
-/// files, never reads them. Hidden files (a write in progress) don't count.
-fn snapshot_count(env: &TestEnv) -> usize {
-    let Ok(entries) = std::fs::read_dir(env.state_dir().join("snapshots")) else {
-        return 0;
-    };
-    entries
-        .map(|entry| entry.unwrap().file_name())
-        .filter(|name| !name.to_string_lossy().starts_with('.'))
-        .count()
+/// The snapshots `rex-resurrect list` shows, newest first, each as its
+/// session labels (`zz-1, zz-2`).
+fn listed(env: &TestEnv, server: &Server) -> Vec<String> {
+    let out = env.resurrect(server).arg("list").run().assert_success();
+    out.stdout
+        .lines()
+        .filter(|line| *line != "no snapshots yet")
+        .map(|line| {
+            // `<id>  <time>  <labels>`; the time has single spaces only.
+            line.splitn(3, "  ")
+                .nth(2)
+                .unwrap_or_else(|| panic!("list line {line:?} has too few columns"))
+                .to_string()
+        })
+        .collect()
 }
 
 fn sorted_labels(server: &Server) -> Vec<String> {
@@ -91,7 +95,7 @@ fn only_the_newest_snapshots_are_kept_and_latest_is_the_newest() {
         fixtures.push(fixture);
     }
 
-    assert_eq!(snapshot_count(&env), 2);
+    assert_eq!(listed(&env, &server), ["zz-1, zz-2, zz-3", "zz-1, zz-2"]);
 
     for fixture in &fixtures {
         server.kill_session(&fixture.id);
@@ -111,7 +115,7 @@ fn ten_snapshots_are_kept_by_default() {
         env.save(&server);
     }
 
-    assert_eq!(snapshot_count(&env), 10);
+    assert_eq!(listed(&env, &server).len(), 10);
 }
 
 #[test]
@@ -131,5 +135,5 @@ fn a_keep_count_that_is_not_a_positive_number_fails_save_and_writes_nothing() {
         assert!(out.stderr.contains(KEEP_VAR), "{out}");
     }
 
-    assert_eq!(snapshot_count(&env), 0);
+    assert_eq!(listed(&env, &server), Vec::<String>::new());
 }
