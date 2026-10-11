@@ -105,6 +105,14 @@ same label both come back, a restored session you rename still counts as live, a
 you created by hand under a saved label doesn't (see
 [ADR-0001](docs/adr/0001-match-sessions-by-lineage-not-label.md)).
 
+After a server restart, the first `save` restores before it saves, unless a `restore` already
+ran on that server. A save that runs on a freshly started server (an autosave, say) therefore
+can't replace your latest snapshot with a near-empty one. A save on a server already restored
+into never restores again, even if you've killed restored sessions since. A `--dry-run` or
+`--session` restore doesn't count, because it leaves sessions out; restoring a whole older
+snapshot does. Only one restore runs at a time, and a `save` that starts during a restore waits
+for it to finish.
+
 rex-resurrect never starts a Rex server. If Rex isn't running, `save` and `restore` fail and
 say so.
 
@@ -120,11 +128,12 @@ Snapshots and rex-resurrect's own bookkeeping live in its state directory:
 2. otherwise `$XDG_STATE_HOME/rex-resurrect`;
 3. otherwise `~/.local/state/rex-resurrect`.
 
-It holds `snapshots/`, `latest.json`, `lineage.json`, which remembers which live session
-restore created from which saved one, and `recorder/`, one file per block holding its last
-command. Deleting `lineage.json` makes the next `restore` recreate sessions that are already
-live. The recorder finds the state directory the same way, so set `REX_RESURRECT_STATE_DIR` (if
-you use it) where both your shells and rex-resurrect see it.
+It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which live session
+restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
+sessions that are already live. `last-restored-instance` names the server instance restore last
+ran in, and `restore.lock` makes restores take turns. `recorder/` holds one file per block with
+its last command. The recorder finds the state directory the same way, so set
+`REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
 
 ## Development
 
