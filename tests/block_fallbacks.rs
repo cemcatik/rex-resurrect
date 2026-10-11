@@ -8,8 +8,7 @@
 
 mod common;
 
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use common::*;
 use serde_json::{Value, json};
@@ -23,10 +22,9 @@ fn run_with_home(env: &TestEnv, server: &Server, home: &Path, command: &str) -> 
         .assert_success()
 }
 
-/// Writes a stand-in `rex` that reports one block of a live session as
-/// something a throwaway server can't create (a block that isn't a shell
-/// block, a block on another host), and returns the directory holding it.
-/// Put it first on rex-resurrect's `PATH`.
+/// A stand-in `rex` that reports one block of a live session as something a
+/// throwaway server can't create (a block that isn't a shell block, a block
+/// on another host). Put it first on rex-resurrect's `PATH`.
 ///
 /// - `session.view` of that session returns the real view, with `edit`
 ///   applied to the block's entry in its layer's `blocks`;
@@ -39,7 +37,7 @@ fn stub_rex_reporting(
     session_id: &str,
     block_id: &str,
     edit: impl Fn(&mut Value),
-) -> PathBuf {
+) -> RexStub {
     let mut view = server.view(session_id);
     let entry = view["windows"]
         .as_array_mut()
@@ -50,38 +48,14 @@ fn stub_rex_reporting(
         .find(|block| block["block_id"] == block_id)
         .unwrap_or_else(|| panic!("{block_id} isn't in session {session_id}"));
     edit(entry);
-
-    let dir = env.mkdir("stub-rex");
-    let view_file = dir.join("view.json");
-    std::fs::write(&view_file, view.to_string()).unwrap();
-    let quoted = |s: &str| {
-        assert!(!s.contains('\''), "can't quote {s:?} for sh");
-        format!("'{s}'")
-    };
-    let script = format!(
-        r#"#!/bin/sh
-# Stand-in rex for one rex-resurrect test (see tests/block_fallbacks.rs).
-input=$(cat)
-case " $* " in
-  *" session.view "*)
-    case "$input" in *{session}*) cat {view}; exit 0 ;; esac ;;
-  *" block.method "*)
-    case "$input" in *{block}*)
-      echo 'Error: stream response "control-1" failed: method not found (status=404 code=method_not_found)' >&2
-      exit 3 ;;
-    esac ;;
-esac
-printf '%s' "$input" | exec {rex} "$@"
-"#,
-        session = quoted(session_id),
-        block = quoted(block_id),
-        view = quoted(view_file.to_str().unwrap()),
-        rex = quoted(common::server::rex_bin().to_str().unwrap()),
-    );
-    let stub = dir.join("rex");
-    std::fs::write(&stub, script).unwrap();
-    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
-    dir
+    RexStub::new(env)
+        .answer_when("session.view", session_id, &view)
+        .fail_when(
+            "block.method",
+            block_id,
+            3,
+            r#"Error: stream response "control-1" failed: method not found (status=404 code=method_not_found)"#,
+        )
 }
 
 /// Moves a tiled block into a new floating layer of its window.
@@ -213,7 +187,7 @@ fn assert_saved_as_a_plain_shell_in_home(label: &str, edit: impl Fn(&mut Value))
 
     env.resurrect(&server)
         .env("HOME", &home)
-        .path_prepend(stub)
+        .path_prepend(stub.dir())
         .arg("save")
         .run()
         .assert_success();

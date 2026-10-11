@@ -9,10 +9,10 @@
 
 mod common;
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use common::stub::sh_quote;
 use common::*;
 
 fn recorder_file(env: &TestEnv, name: &str) -> PathBuf {
@@ -92,34 +92,14 @@ fn a_save_from_an_empty_server_removes_nothing() {
     assert!(recorder_file(&env, &restored_block).exists());
 }
 
-/// Writes a stand-in `rex` that passes every call to the real one and, each
-/// time `session.list` has answered, writes `recorder` as a recorder would
-/// for a block that appeared just then. Returns the directory holding it.
-/// Put it first on rex-resurrect's `PATH`.
-fn stub_rex_recording_after_session_list(env: &TestEnv, recorder: &Path) -> PathBuf {
-    let quoted = |p: &Path| {
-        let s = p.to_str().unwrap();
-        assert!(!s.contains('\''), "can't quote {s:?} for sh");
-        format!("'{s}'")
-    };
-    let script = format!(
-        r#"#!/bin/sh
-# Stand-in rex for one rex-resurrect test (see tests/pruning.rs).
-{rex} "$@"
-status=$?
-case " $* " in
-  *" session.list "*) echo 'echo zz-new' > {recorder} ;;
-esac
-exit $status
-"#,
-        rex = quoted(common::server::rex_bin()),
-        recorder = quoted(recorder),
-    );
-    let dir = env.mkdir("stub-rex");
-    let stub = dir.join("rex");
-    std::fs::write(&stub, script).unwrap();
-    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
-    dir
+/// A stand-in `rex` that passes every call to the real one and, each time
+/// `session.list` has answered, writes `recorder` as a recorder would for a
+/// block that appeared just then. Put it first on rex-resurrect's `PATH`.
+fn stub_rex_recording_after_session_list(env: &TestEnv, recorder: &Path) -> RexStub {
+    RexStub::new(env).after(
+        "session.list",
+        &format!("echo 'echo zz-new' > {}", sh_quote(recorder)),
+    )
 }
 
 #[test]
@@ -137,7 +117,7 @@ fn a_recorder_file_written_while_a_save_runs_is_kept() {
 
     let out = env
         .resurrect(&server)
-        .path_prepend(stub)
+        .path_prepend(stub.dir())
         .arg("save")
         .run()
         .assert_success();

@@ -35,8 +35,16 @@ struct Matching {
 enum Rule {
     /// Answers with the file's contents on stdout, exit 0.
     Answer { matching: Matching, file: PathBuf },
+    /// Fails: `message` on stderr, exit `status`.
+    Fail {
+        matching: Matching,
+        status: i32,
+        message: String,
+    },
     /// Runs the real `rex`, then pipes what it printed through `sed`.
     Rewrite { matching: Matching, sed: String },
+    /// Runs the real `rex`, then the `sh` command `command`.
+    After { matching: Matching, command: String },
 }
 
 impl RexStub {
@@ -64,16 +72,40 @@ impl RexStub {
         self.answer_matching(matching(method, Some(input_contains)), result)
     }
 
+    /// Fails calls to `method` whose JSON arguments contain `input_contains`
+    /// the way `rex` does: `message` on stderr, exit `status`.
+    pub fn fail_when(
+        self,
+        method: &str,
+        input_contains: &str,
+        status: i32,
+        message: &str,
+    ) -> RexStub {
+        self.with_rule(Rule::Fail {
+            matching: matching(method, Some(input_contains)),
+            status,
+            message: message.to_string(),
+        })
+    }
+
     /// For calls to `method` whose JSON arguments contain `input_contains`,
     /// runs the real `rex` and pipes its output through the `sed` script
     /// `sed` (exit status kept).
-    pub fn rewrite_when(mut self, method: &str, input_contains: &str, sed: &str) -> RexStub {
-        self.rules.push(Rule::Rewrite {
+    pub fn rewrite_when(self, method: &str, input_contains: &str, sed: &str) -> RexStub {
+        self.with_rule(Rule::Rewrite {
             matching: matching(method, Some(input_contains)),
             sed: sed.to_string(),
-        });
-        self.write_script();
-        self
+        })
+    }
+
+    /// After every call to `method`, which the real `rex` answers, runs the
+    /// `sh` command `command` (the call's exit status kept): something that
+    /// happens right after the server answered.
+    pub fn after(self, method: &str, command: &str) -> RexStub {
+        self.with_rule(Rule::After {
+            matching: matching(method, None),
+            command: command.to_string(),
+        })
     }
 
     /// The directory to put first on `PATH`.
@@ -81,13 +113,17 @@ impl RexStub {
         &self.dir
     }
 
-    fn answer_matching(mut self, matching: Matching, result: &Value) -> RexStub {
+    fn answer_matching(self, matching: Matching, result: &Value) -> RexStub {
         let file = self
             .dir
             .join("answers")
             .join(format!("{}.json", self.rules.len()));
         std::fs::write(&file, format!("{result}\n")).unwrap();
-        self.rules.push(Rule::Answer { matching, file });
+        self.with_rule(Rule::Answer { matching, file })
+    }
+
+    fn with_rule(mut self, rule: Rule) -> RexStub {
+        self.rules.push(rule);
         self.write_script();
         self
     }
@@ -128,6 +164,20 @@ input=$(cat)
             Rule::Answer { matching, file } => {
                 (matching, format!("cat {}; exit 0", sh_quote(file)))
             }
+            Rule::Fail {
+                matching,
+                status,
+                message,
+            } => (
+                matching,
+                format!("printf '%s\\n' {} >&2; exit {status}", sh_word(message)),
+            ),
+            Rule::After { matching, command } => (
+                matching,
+                format!(
+                    r#"printf '%s' "$input" | "$real" "$@"; status=$?; {command}; exit $status"#
+                ),
+            ),
             Rule::Rewrite { matching, sed } => (
                 matching,
                 format!(
