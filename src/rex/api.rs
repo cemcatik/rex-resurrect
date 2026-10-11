@@ -198,11 +198,9 @@ impl TerminalProcess {
     /// directly), so a foreground process with an ancestor other than `login`
     /// isn't the block's shell.
     pub fn foreground_program(&self) -> Option<&ProcessInfo> {
-        self.foreground.as_ref().filter(|_| {
-            self.ancestors
-                .iter()
-                .any(|ancestor| ancestor.name != LOGIN)
-        })
+        self.foreground
+            .as_ref()
+            .filter(|_| self.ancestors.iter().any(|ancestor| ancestor.name != LOGIN))
     }
 }
 

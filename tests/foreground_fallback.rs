@@ -102,7 +102,8 @@ fn a_block_with_a_recorder_file_uses_the_recorded_command_whatever_is_in_its_for
     let env = TestEnv::new();
     let server = env.start_server();
     let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
-    let fixture = server.create_session("zz-recorded", &[window(hsplit(0.5, shell(&a), shell(&b)))]);
+    let fixture =
+        server.create_session("zz-recorded", &[window(hsplit(0.5, shell(&a), shell(&b)))]);
     server.wait_for_pwds(&fixture);
     let [running, idle] = [0, 1].map(|i| fixture.block_ids()[i]);
     let tail = "tail -n 0 -f /dev/null";
