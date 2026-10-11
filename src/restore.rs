@@ -34,6 +34,11 @@ impl RestoreOptions {
     /// run creates nothing and a single-session restore leaves the other
     /// sessions out, so a save after either still restores first. Restoring
     /// a whole older snapshot counts.
+    ///
+    /// This deliberately departs from #15, which counts any restore: after
+    /// `--session X` on a fresh server instance, the next autosave would
+    /// otherwise replace the latest snapshot with one missing every other
+    /// session, the very loss restoring first exists to prevent (story 48).
     fn restores_whole_snapshot(&self) -> bool {
         !self.dry_run && self.session.is_none()
     }
