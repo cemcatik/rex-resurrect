@@ -46,13 +46,6 @@ impl SnapshotStore {
     }
 
     fn point_latest_at(&self, name: &str) -> Result<()> {
-        let target = PathBuf::from(SNAPSHOTS_DIR).join(name);
-        match std::fs::remove_file(&self.latest) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e).with_context(|| format!("removing {}", self.latest.display())),
-        }
-        std::os::unix::fs::symlink(&target, &self.latest)
-            .with_context(|| format!("pointing {} at {}", self.latest.display(), target.display()))
+        state::write_symlink(&self.latest, &PathBuf::from(SNAPSHOTS_DIR).join(name))
     }
 }

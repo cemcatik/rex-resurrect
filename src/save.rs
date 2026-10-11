@@ -56,6 +56,7 @@ pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved
     snapshot
         .validate()
         .with_context(|| "the snapshot failed validation, so nothing was written")?;
+    state.make_private()?;
     let path = SnapshotStore::new(state).write(&snapshot, taken_at)?;
     Ok(Saved::Snapshot {
         path,
