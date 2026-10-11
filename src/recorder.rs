@@ -64,6 +64,38 @@ impl RecorderFiles {
         std::fs::rename(&tmp, &path).with_context(|| format!("writing {}", path.display()))
     }
 
+    /// Removes the records of blocks `is_live` says aren't live. Leaves alone
+    /// temporary files (named `.…`), which a recorder may be about to rename
+    /// over a record, and anything that isn't a file.
+    pub fn retain_live(&self, is_live: impl Fn(&str) -> bool) -> Result<()> {
+        let listing = || format!("listing {}", self.dir.display());
+        let entries = match std::fs::read_dir(&self.dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e).with_context(listing),
+        };
+        for entry in entries {
+            let entry = entry.with_context(listing)?;
+            let name = entry.file_name();
+            let Some(block_id) = name.to_str() else {
+                continue;
+            };
+            let Some(path) = self.file(block_id) else {
+                continue;
+            };
+            if is_live(block_id) || !entry.file_type().with_context(listing)?.is_file() {
+                continue;
+            }
+            match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(e).with_context(|| format!("removing {}", path.display()));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     /// The block's recorder file. `None` for an ID that isn't a plain file
     /// name, so no ID can reach outside the recorder directory.
     fn file(&self, block_id: &str) -> Option<PathBuf> {
