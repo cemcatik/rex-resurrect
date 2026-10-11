@@ -67,3 +67,85 @@ fn a_shell_blocks_earlier_output_is_printed_above_the_new_prompt_with_its_last_c
     assert_eq!(process["foreground"]["argv0"], "-zsh", "{process}");
     assert_eq!(process["child"]["name"], "login", "{process}");
 }
+
+#[test]
+fn a_block_showing_a_full_screen_program_gets_no_scrollback_replay() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
+    let paged = a.join("paged.txt");
+    std::fs::write(&paged, "zz-paged-content\n".repeat(5)).unwrap();
+    let fixture = server.create_session(
+        "zz-full-screen",
+        &[window(hsplit(0.5, shell(&a), shell(&b)))],
+    );
+    server.wait_for_pwds(&fixture);
+    let [pager, switched] = [0, 1].map(|i| fixture.windows[0].block_ids[i].as_str());
+
+    // A full-screen program (on the alternate screen).
+    server.run(&fixture.id, pager, "echo zz-before-less");
+    let less = format!("less {}", paged.display());
+    server.run(&fixture.id, pager, &less);
+    server.wait_for_foreground(&fixture.id, pager, "less");
+    server.wait_for_capture(&fixture.id, pager, "the paged file", |c| {
+        c.contains("zz-paged-content")
+    });
+    // The shell itself in the foreground, but left on the alternate screen
+    // (as by a full-screen program that was killed): still no history to show.
+    server.run(&fixture.id, switched, "echo zz-before-switch");
+    let switch = r"printf '\033[?1049h'";
+    server.run(&fixture.id, switched, switch);
+    server.wait_for_capture(
+        &fixture.id,
+        switched,
+        "a prompt on the alternate screen",
+        |c| !c.contains("zz-before-switch") && c.trim_end().ends_with(" %"),
+    );
+
+    env.save(&server);
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-full-screen");
+    let blocks = server.block_ids(&restored);
+    server.wait_for_typed(&restored, &blocks[0], &less);
+    let capture = server.capture(&restored, &blocks[0]);
+    for absent in ["zz-paged-content", "zz-before-less"] {
+        assert!(
+            !capture.contains(absent),
+            "no replay of {absent}:\n{capture}"
+        );
+    }
+    server.wait_for_typed(&restored, &blocks[1], switch);
+    let capture = server.capture(&restored, &blocks[1]);
+    assert!(
+        !capture.contains("zz-before-switch"),
+        "no replay:\n{capture}"
+    );
+}
+
+#[test]
+fn a_block_running_a_program_on_the_main_screen_keeps_its_scrollback() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let fixture = server.create_session("zz-main-screen", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    server.run(&fixture.id, block, "echo zz-before-tail");
+    let tail = "tail -f /dev/null";
+    server.run(&fixture.id, block, tail);
+    server.wait_for_foreground(&fixture.id, block, "tail");
+
+    env.save(&server);
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-main-screen");
+    let block = server.block_ids(&restored).remove(0);
+    server.wait_for_typed(&restored, &block, tail);
+    let capture = server.capture(&restored, &block);
+    assert!(
+        history(&capture).contains(&"zz-before-tail"),
+        "the output before the program is above the prompt:\n{capture}"
+    );
+}
