@@ -6,6 +6,7 @@ use std::process::ExitCode;
 use crate::capture;
 use crate::error::{Context, Result};
 use crate::lineage::LineageMap;
+use crate::restore;
 use crate::rex::Rex;
 use crate::snapshot::Snapshot;
 use crate::state::StateDir;
@@ -21,14 +22,28 @@ pub struct Saved {
     pub sessions: usize,
 }
 
+/// Restores first if rex-resurrect hasn't restored into this server instance
+/// yet, so that a save on a freshly started server can't replace the latest
+/// snapshot with a near-empty one. Still saves if some sessions failed to
+/// restore, but then exits non-zero.
 pub fn run(options: &SaveOptions) -> Result<ExitCode> {
-    let saved = save(&Rex::from_env(), &StateDir::from_env()?, options)?;
+    let rex = Rex::from_env();
+    let state = StateDir::from_env()?;
+    let restored_first = restore::restore_unrestored_instance(&rex, &state)?;
+    if let Some(report) = &restored_first {
+        println!("restoring first: this server instance hasn't been restored yet");
+        let _ = report.print(&mut std::io::stdout().lock());
+    }
+    let saved = save(&rex, &state, options)?;
     println!(
         "saved {} session(s) to {}",
         saved.sessions,
         saved.path.display()
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(match restored_first {
+        Some(report) if report.failed() > 0 => ExitCode::FAILURE,
+        _ => ExitCode::SUCCESS,
+    })
 }
 
 pub fn save(rex: &Rex, state: &StateDir, _options: &SaveOptions) -> Result<Saved> {

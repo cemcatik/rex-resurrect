@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 use crate::create;
 use crate::error::{Context, Result};
+use crate::instance;
 use crate::lineage::{Lineage, LineageMap};
 use crate::rex::Rex;
 use crate::state::StateDir;
@@ -84,11 +85,35 @@ pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
     })
 }
 
+/// Restores into the server's current instance, unless rex-resurrect already
+/// has: `None` then. This is how `save` treats an unrestored server instance.
+pub fn restore_unrestored_instance(rex: &Rex, state: &StateDir) -> Result<Option<RestoreReport>> {
+    let instance_id = rex.server_status()?.instance_id;
+    if instance::last_restored(state)?.as_deref() == Some(instance_id.as_str()) {
+        return Ok(None);
+    }
+    restore(rex, state, &RestoreOptions::default()).map(Some)
+}
+
+/// Restores the latest snapshot and, once that has finished, records the
+/// server instance it restored into. Sessions that failed to create don't
+/// stop it from finishing.
+pub fn restore(rex: &Rex, state: &StateDir, options: &RestoreOptions) -> Result<RestoreReport> {
+    let instance_id = rex.server_status()?.instance_id;
+    let report = restore_sessions(rex, state, options)?;
+    instance::record_restored(state, &instance_id)?;
+    Ok(report)
+}
+
 /// Creates each saved session whose lineage has no live session (ADR-0001)
 /// and records the new session's lineage. A session that fails to create
 /// doesn't stop the others; errors that stop the whole restore (no server,
 /// unreadable state) are returned.
-pub fn restore(rex: &Rex, state: &StateDir, _options: &RestoreOptions) -> Result<RestoreReport> {
+fn restore_sessions(
+    rex: &Rex,
+    state: &StateDir,
+    _options: &RestoreOptions,
+) -> Result<RestoreReport> {
     let Some(snapshot) = SnapshotStore::new(state).read_latest()? else {
         return Ok(RestoreReport::default());
     };

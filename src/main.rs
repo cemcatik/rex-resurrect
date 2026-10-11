@@ -5,6 +5,7 @@ mod capture;
 mod cli;
 mod create;
 mod error;
+mod instance;
 mod lineage;
 mod restore;
 mod rex;
