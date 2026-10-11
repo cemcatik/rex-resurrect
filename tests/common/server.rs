@@ -301,7 +301,8 @@ impl Server {
         );
     }
 
-    /// Calls a terminal block method through the `block.method` wrapper.
+    /// Calls a shell block's terminal method through the `block.method`
+    /// wrapper.
     pub fn block_method(
         &self,
         session_id: &str,

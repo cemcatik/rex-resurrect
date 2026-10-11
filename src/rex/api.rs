@@ -193,7 +193,7 @@ pub struct BlockView {
     pub host_id: Option<String>,
 }
 
-// ---- terminal block methods (through block.method) ------------------------
+// ---- shell blocks' terminal methods (through block.method) -----------------
 
 /// The terminal `pwd` method. `{}` until the shell has reported a directory
 /// (through OSC 7), and forever for shells that never do.

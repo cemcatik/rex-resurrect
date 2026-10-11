@@ -196,8 +196,8 @@ impl Capture<'_> {
     /// it has none. A block without one (its shell started before the
     /// recorder was installed) falls back to the program in its foreground.
     /// Its scrollback is saved later, if save keeps the session. A block
-    /// this run just restored is saved as restore created it. A
-    /// non-terminal block has no working directory, and a remote block's is
+    /// this run just restored is saved as restore created it. A block that
+    /// isn't a shell block has no working directory, and a remote block's is
     /// on another host, so either is saved as a plain shell in the home
     /// directory.
     fn saved_block(&mut self, block: &BlockView) -> Result<SavedBlock> {

@@ -24,9 +24,9 @@ fn run_with_home(env: &TestEnv, server: &Server, home: &Path, command: &str) -> 
 }
 
 /// Writes a stand-in `rex` that reports one block of a live session as
-/// something a throwaway server can't create (a non-terminal block, a block
-/// on another host), and returns the directory holding it. Put it first on
-/// rex-resurrect's `PATH`.
+/// something a throwaway server can't create (a block that isn't a shell
+/// block, a block on another host), and returns the directory holding it.
+/// Put it first on rex-resurrect's `PATH`.
 ///
 /// - `session.view` of that session returns the real view, with `edit`
 ///   applied to the block's entry in its layer's `blocks`;
@@ -233,8 +233,8 @@ fn assert_saved_as_a_plain_shell_in_home(label: &str, edit: impl Fn(&mut Value))
 }
 
 #[test]
-fn a_non_terminal_block_is_saved_as_a_plain_shell_in_the_home_directory() {
-    assert_saved_as_a_plain_shell_in_home("zz-non-terminal", |block| {
+fn a_block_that_isnt_a_shell_block_is_saved_as_a_plain_shell_in_the_home_directory() {
+    assert_saved_as_a_plain_shell_in_home("zz-not-a-shell", |block| {
         block["creator_name"] = json!("com.example.notes");
         block["flavor"] = json!("com.example.notes.page");
         block["label"] = json!("notes");
