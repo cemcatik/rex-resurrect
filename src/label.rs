@@ -13,7 +13,7 @@ pub fn user_set_window_label(window: &WindowView) -> Option<&str> {
     let default = window
         .label
         .strip_prefix("Window ")
-        .is_some_and(|suffix| suffix == id_suffix(&window.window_id));
+        .is_some_and(|suffix| Some(suffix) == id_suffix(&window.window_id));
     (!default).then_some(window.label.as_str())
 }
 
@@ -25,12 +25,12 @@ pub fn user_set_block_label(block: &BlockView) -> Option<&str> {
         || block
             .label
             .strip_prefix("Block ")
-            .is_some_and(|suffix| suffix == id_suffix(&block.block_id));
+            .is_some_and(|suffix| Some(suffix) == id_suffix(&block.block_id));
     (!default).then_some(block.label.as_str())
 }
 
 /// The last 8 characters of a Rex ID (`window:<uuid>`, `block:<uuid>`): hex,
-/// from the UUID's last group.
-fn id_suffix(id: &str) -> &str {
-    &id[id.len().saturating_sub(8)..]
+/// from the UUID's last group. `None` for an ID that can't end that way.
+fn id_suffix(id: &str) -> Option<&str> {
+    id.get(id.len().checked_sub(8)?..)
 }
