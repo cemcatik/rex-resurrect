@@ -7,7 +7,7 @@
 //!   joined, so it reflows at whatever width the restored block has.
 //! - A block on the alternate screen is skipped: it's showing a full-screen
 //!   program (`nvim`, `less`, `top`), and its capture would be a frozen
-//!   picture of that program rather than history. Rex reports the alternate
+//!   picture of that program rather than earlier output. Rex reports the alternate
 //!   screen itself, which is more reliable than guessing from the foreground
 //!   process: a block running `tail -f` keeps its scrollback, and one left
 //!   on the alternate screen by a killed program loses it.

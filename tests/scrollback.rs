@@ -10,7 +10,7 @@ use common::*;
 use serde_json::json;
 
 /// The lines of a capture before its last (the prompt line).
-fn history(capture: &str) -> Vec<&str> {
+fn above_prompt(capture: &str) -> Vec<&str> {
     let mut lines: Vec<&str> = capture.trim_end().lines().collect();
     lines.pop();
     lines
@@ -45,10 +45,10 @@ fn a_shell_blocks_earlier_output_is_printed_above_the_new_prompt_with_its_last_c
     let block = server.block_ids(&restored).remove(0);
     server.wait_for_typed(&restored, &block, &touch);
     let capture = server.capture(&restored, &block);
-    let history = history(&capture);
+    let above = above_prompt(&capture);
     for i in 1..=3 {
         assert!(
-            history.contains(&format!("zz-earlier-{i}").as_str()),
+            above.contains(&format!("zz-earlier-{i}").as_str()),
             "earlier output zz-earlier-{i} is above the prompt:\n{capture}"
         );
     }
@@ -92,7 +92,7 @@ fn a_block_showing_a_full_screen_program_gets_no_scrollback_replay() {
         c.contains("zz-paged-content")
     });
     // The shell itself in the foreground, but left on the alternate screen
-    // (as by a full-screen program that was killed): still no history to show.
+    // (as by a full-screen program that was killed): still nothing to replay.
     server.run(&fixture.id, switched, "echo zz-before-switch");
     let switch = r"printf '\033[?1049h'";
     server.run(&fixture.id, switched, switch);
@@ -169,7 +169,7 @@ fn a_block_restored_with_its_scrollback_saves_and_restores_again_like_any_other(
         "the idle block gets no last command:\n{idle}"
     );
     assert!(
-        history(&idle).contains(&"zz-first-run"),
+        above_prompt(&idle).contains(&"zz-first-run"),
         "its scrollback carries over from before the first restore:\n{idle}"
     );
     server.wait_for_typed(&again, &blocks[1], tail);
@@ -289,9 +289,9 @@ fn a_block_with_50000_lines_of_scrollback_comes_back_in_full() {
     let restored = server.the_session_labelled("zz-50k");
     let block = server.block_ids(&restored).remove(0);
     server.wait_for_typed(&restored, &block, seq);
-    let history = history(&server.capture(&restored, &block)).join("\n");
+    let above = above_prompt(&server.capture(&restored, &block)).join("\n");
     assert!(
-        history.contains("\n1\n2\n3\n") && history.contains("\n49999\n50000\n"),
+        above.contains("\n1\n2\n3\n") && above.contains("\n49999\n50000\n"),
         "the whole sequence is above the prompt"
     );
 }
@@ -317,7 +317,7 @@ fn a_block_running_a_program_on_the_main_screen_keeps_its_scrollback() {
     server.wait_for_typed(&restored, &block, tail);
     let capture = server.capture(&restored, &block);
     assert!(
-        history(&capture).contains(&"zz-before-tail"),
+        above_prompt(&capture).contains(&"zz-before-tail"),
         "the output before the program is above the prompt:\n{capture}"
     );
 }

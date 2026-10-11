@@ -8,9 +8,9 @@ needs nothing else at runtime.
 
 > **Status:** early. `save` and `restore` bring back each session's label, its windows in order,
 > each window's split layout and ratios, window and block labels you set, each block's working
-> directory and each block's last command typed at its prompt: the one the zsh recorder
-> recorded or, without one, the program that was running in the block.
-> Autosave and auto-restore are coming.
+> directory, each block's earlier output above its prompt, and each block's last command typed
+> at that prompt: the one the zsh recorder recorded or, without one, the program that was
+> running in the block. Autosave and auto-restore are coming.
 
 ## Install
 
@@ -109,6 +109,12 @@ resume, edit it, or clear it. Only single-line commands are typed; a block with 
 command gets an empty prompt. A restored block keeps its last command through later saves and
 restores until you run something new in it.
 
+Each restored block also shows its scrollback, the output it held at save time, above the
+`Last login:` line and the new prompt, styles included. It wraps to the block's current width
+and reflows when you resize the block. A block that was showing a full-screen program (`nvim`,
+`less`, `top`, anything on the terminal's alternate screen) gets no scrollback, so you never see
+a frozen picture of the program; its command still comes back typed at the prompt.
+
 A block the recorder never recorded anything in, such as one whose shell started before you
 loaded the recorder, falls back to the program running in it at save time: `nvim`, a dev server
 or a nested shell comes back with its full command line typed at the prompt. Arguments come
@@ -146,11 +152,13 @@ It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which l
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
 sessions that are already live. `last-restored-instance` names the server instance restore last
 ran in, and `restore.lock` makes restores take turns. `recorder/` holds one file per block with
-its last command. The recorder finds the state directory the same way, so set
+its last command. `scrollback/` holds each snapshot's block scrollback, and is removed along
+with its snapshot. A block with 50,000 lines of output takes about 340 KB per snapshot. The
+recorder finds the state directory the same way, so set
 `REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
 
-Snapshots and recorder files hold commands, and commands can hold secrets, so the state
-directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
+Snapshots, scrollback and recorder files hold commands, and commands can hold secrets, so the
+state directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
 rex-resurrect writes its own files with mode `0600`, and the recorder keeps its files in a
 `0700` directory. Every file is written atomically (a temporary file, then a rename), so a
 crash never leaves a partial snapshot or record behind.
