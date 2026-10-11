@@ -22,7 +22,11 @@ fn exit_last_shell(server: &Server, session: &FixtureSession) {
     std::thread::sleep(std::time::Duration::from_millis(500));
     server.write(&session.id, session.block_ids()[0], "exit\n");
     wait_for("the session to have no windows", || {
-        server.view(&session.id).get("windows").is_none().then_some(())
+        server
+            .view(&session.id)
+            .get("windows")
+            .is_none()
+            .then_some(())
     });
 }
 
@@ -39,13 +43,23 @@ fn save_on_a_fresh_server_with_no_sessions_keeps_the_latest_snapshot() {
     } // The server stops, as in a restart.
 
     let after = env.start_server();
-    assert!(after.sessions().is_empty(), "a fresh server has no sessions");
+    assert!(
+        after.sessions().is_empty(),
+        "a fresh server has no sessions"
+    );
     env.save(&after);
 
     env.restore(&after);
     let restored = after.session_ids_labelled("zz-kept");
-    assert_eq!(restored.len(), 1, "the earlier snapshot is still the latest");
-    assert_eq!(after.window_shapes(&restored[0]), [layout().expected_shape()]);
+    assert_eq!(
+        restored.len(),
+        1,
+        "the earlier snapshot is still the latest"
+    );
+    assert_eq!(
+        after.window_shapes(&restored[0]),
+        [layout().expected_shape()]
+    );
 }
 
 /// The same guard on a server instance that has already been restored into,
@@ -64,8 +78,15 @@ fn save_after_every_session_was_killed_keeps_the_latest_snapshot() {
 
     env.restore(&server);
     let restored = server.session_ids_labelled("zz-kept");
-    assert_eq!(restored.len(), 1, "the earlier snapshot is still the latest");
-    assert_eq!(server.window_shapes(&restored[0]), [shell(&a).expected_shape()]);
+    assert_eq!(
+        restored.len(),
+        1,
+        "the earlier snapshot is still the latest"
+    );
+    assert_eq!(
+        server.window_shapes(&restored[0]),
+        [shell(&a).expected_shape()]
+    );
 }
 
 /// A session with no windows has nothing to restore: it's left out instead

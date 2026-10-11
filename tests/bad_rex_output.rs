@@ -43,7 +43,10 @@ fn assert_latest_is_unchanged(
     env.restore(server);
     let restored = server.session_ids_labelled("zz-good");
     assert_eq!(restored.len(), 1, "the good snapshot is still the latest");
-    assert_eq!(server.window_shapes(&restored[0]), [layout.expected_shape()]);
+    assert_eq!(
+        server.window_shapes(&restored[0]),
+        [layout.expected_shape()]
+    );
 }
 
 fn tiled_layer(view: &mut Value, window: usize) -> &mut Value {

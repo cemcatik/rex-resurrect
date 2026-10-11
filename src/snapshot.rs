@@ -47,7 +47,11 @@ impl Snapshot {
             }
             for (i, window) in session.windows.iter().enumerate() {
                 validate_layout(&window.layout).map_err(|e| {
-                    Error::new(format!("session {:?}, window {}: {e}", session.label, i + 1))
+                    Error::new(format!(
+                        "session {:?}, window {}: {e}",
+                        session.label,
+                        i + 1
+                    ))
                 })?;
             }
         }
@@ -61,10 +65,7 @@ fn validate_layout(layout: &SavedLayout) -> Result<(), String> {
         SavedLayout::Split(split) => {
             // Written so that NaN fails too.
             if !(split.ratio > 0.0 && split.ratio < 1.0) {
-                return Err(format!(
-                    "split ratio {} isn't between 0 and 1",
-                    split.ratio
-                ));
+                return Err(format!("split ratio {} isn't between 0 and 1", split.ratio));
             }
             validate_layout(&split.before)?;
             validate_layout(&split.after)
