@@ -52,6 +52,8 @@ Autosave install options:
   --interval <minutes>  Save this often instead (default: 15)
 
 Auto-restore options:
+  --print-hook        Print the line that turns auto-restore on, to append to
+                      Rex's init.lua; it pins this state directory
   --server-pid <pid>  Wait for the Rex server with this pid and restore into
                       it, in the foreground (what the background run does)
 
@@ -172,8 +174,14 @@ fn parse_auto_restore(args: &mut Args) -> Result<AutoRestoreOptions, UsageError>
                     UsageError(format!("--server-pid takes a process ID, not {pid:?}"))
                 })?);
             }
+            "--print-hook" => options.print_hook = true,
             _ => return Err(args.unexpected(&arg, "auto-restore")),
         }
+    }
+    if options.print_hook && options.server_pid.is_some() {
+        return Err(UsageError(
+            "--print-hook and --server-pid can't be combined".into(),
+        ));
     }
     Ok(options)
 }

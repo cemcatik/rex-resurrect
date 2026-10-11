@@ -225,6 +225,8 @@ the directory doesn't grow forever. A save that fails or writes nothing removes 
 with 50,000 lines of output takes about 340 KB per snapshot. `rex-resurrect.log` is the log of
 failures and auto-restore outcomes. The recorder finds the state directory the same way, so set
 `REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
+Autosave and auto-restore run outside your shells, so `autosave install` and
+`auto-restore --print-hook` pin the state directory they resolve.
 
 Snapshots, scrollback and recorder files hold commands, and commands can hold secrets, so the
 state directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
@@ -282,15 +284,22 @@ back after a crash, an update or a reboot without you doing anything. It's one l
 `init.lua`, which is `~/.config/rex/init.lua` unless you've moved it (`rex config check` shows
 where yours is).
 
-**To turn it on**, add the line. This appends it, with the full path of `rex-resurrect`:
+**To turn it on**, add the line. `auto-restore --print-hook` prints it; run this from a shell
+that sees your usual environment (a Rex block, say):
 
 ```sh
 mkdir -p ~/.config/rex &&
-  echo "os.execute([['$(command -v rex-resurrect)' auto-restore]])" >> ~/.config/rex/init.lua
+  rex-resurrect auto-restore --print-hook >> ~/.config/rex/init.lua
 ```
 
-The line reads `os.execute([['/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`. Keep the full
-path: the Rex app starts its server with a bare `PATH`, so a plain `rex-resurrect` isn't found.
+The line reads
+`os.execute([[REX_RESURRECT_STATE_DIR='/Users/you/.local/state/rex-resurrect' '/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`.
+The server runs it in its own environment, not your shell's: the Rex app starts its server with
+a bare `PATH` and no `XDG_*` variables. So the line names `rex-resurrect` by its full path, and
+pins the state directory as it was resolved when you printed it (see
+[Where state lives](#where-state-lives)), so auto-restore uses the same snapshots as your shells
+and their recorder. Print the line again, replacing the old one, after moving `rex-resurrect` or
+changing `REX_RESURRECT_STATE_DIR` or `XDG_STATE_HOME`.
 
 **To turn it off**, delete that line. `autosave uninstall` reminds you to.
 
@@ -315,10 +324,6 @@ until `init.lua` has finished, and carries on in the background:
   server's environment, or in the line, to wait longer.
 - The Rex app may create a session of its own when it finds the server empty. Auto-restore
   leaves it alone, and while it's untouched `save` never saves it.
-
-It runs in the Rex server's environment, not your shell's. If you set `REX_RESURRECT_STATE_DIR`
-for your shells, the server most likely doesn't have it, so put it in the line:
-`os.execute([[REX_RESURRECT_STATE_DIR=/path/to/state '/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`.
 
 `rex config check` runs `init.lua` too. There auto-restore says it wasn't started by a Rex server
 and does nothing. Any other Rex server that reads the same `init.lua` (one you start by hand with

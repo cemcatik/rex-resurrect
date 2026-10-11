@@ -17,6 +17,7 @@
 //! [`server_process`].
 
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
@@ -27,7 +28,7 @@ use crate::process;
 use crate::restore;
 use crate::rex::Rex;
 use crate::rex::server_process::{self, ServerProcess, Starter};
-use crate::state::StateDir;
+use crate::state::{STATE_DIR_VAR, StateDir};
 use crate::workdir;
 
 #[derive(Debug, Default)]
@@ -36,6 +37,9 @@ pub struct AutoRestoreOptions {
     /// foreground. Without it: find the server that started this process
     /// and do that in the background.
     pub server_pid: Option<u32>,
+    /// Print the hook, the line that turns auto-restore on in init.lua,
+    /// and do nothing else.
+    pub print_hook: bool,
 }
 
 /// How long the background run waits for the server to be ready, in seconds.
@@ -48,10 +52,51 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(1);
 const CHECK_INTERVAL: Duration = Duration::from_millis(200);
 
 pub fn run(options: &AutoRestoreOptions) -> Result<ExitCode> {
+    if options.print_hook {
+        println!("{}", hook()?);
+        return Ok(ExitCode::SUCCESS);
+    }
     match options.server_pid {
         None => start_in_background(),
         Some(pid) => restore_when_ready(pid),
     }
+}
+
+/// The line that turns auto-restore on in init.lua:
+/// `os.execute([[REX_RESURRECT_STATE_DIR='<state dir>' '<rex-resurrect>' auto-restore]])`.
+///
+/// Both are pinned as they are here. The server runs init.lua in its own
+/// environment, not the user's shell's: the Rex app starts it with a bare
+/// `PATH`, so `rex-resurrect` needs its full path, and with no `XDG_*`, so
+/// auto-restore could otherwise pick a different state directory from the
+/// user's shells and their recorder.
+fn hook() -> Result<String> {
+    let program = std::env::current_exe().with_context(|| "finding rex-resurrect's own path")?;
+    let state = StateDir::from_env()?;
+    let command = format!(
+        "{STATE_DIR_VAR}={} {} auto-restore",
+        shell_word(state.path())?,
+        shell_word(&program)?
+    );
+    Ok(format!("os.execute({})", lua_long_string(&command)))
+}
+
+/// `path` as one single-quoted `sh` word.
+fn shell_word(path: &Path) -> Result<String> {
+    let path = path
+        .to_str()
+        .ok_or_else(|| Error::new(format!("{} isn't valid UTF-8", path.display())))?;
+    Ok(format!("'{}'", path.replace('\'', r"'\''")))
+}
+
+/// `text` as a Lua long string (`[[...]]`), with as many `=` in its
+/// brackets as it takes for nothing in `text` to end it early.
+fn lua_long_string(text: &str) -> String {
+    let mut level = String::new();
+    while text.contains(&format!("]{level}]")) || text.ends_with(&format!("]{level}")) {
+        level.push('=');
+    }
+    format!("[{level}[{text}]{level}]")
 }
 
 /// Starts the background run, aimed at the server that started this
