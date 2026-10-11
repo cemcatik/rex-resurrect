@@ -8,7 +8,8 @@ needs nothing else at runtime.
 
 > **Status:** early. `save` and `restore` bring back each session's label, its windows in order,
 > each window's split layout and ratios, window and block labels you set, each block's working
-> directory and, with the zsh recorder loaded, each block's last command typed at its prompt.
+> directory and each block's last command typed at its prompt: the one the zsh recorder
+> recorded or, without one, the program that was running in the block.
 > Autosave and auto-restore are coming.
 
 ## Install
@@ -102,7 +103,15 @@ rex-resurrect list      # list the snapshots, newest first
   layout (directions and ratios), and each block's working directory and last command. Window
   and block labels are recorded only if you set them; windows and blocks with Rex's default
   labels get fresh default labels on restore, not stale copies like `Window 1a2b3c4d`. Each
-  save is a new timestamped snapshot; `latest.json` points at the newest.
+  save is a new timestamped snapshot; `latest.json` points at the newest. The newest 10
+  snapshots are kept (set `REX_RESURRECT_KEEP` to keep a different number).
+  - If there's nothing to save (no sessions, or only sessions with no windows left), `save`
+    writes nothing, leaves `latest.json` alone and exits 0, so a server with nothing on it
+    never replaces your latest snapshot.
+  - If Rex's output doesn't have the shape rex-resurrect expects (Rex is in beta and its API
+    can change) or the snapshot fails validation (every session needs a window, every split
+    ratio must be between 0 and 1), `save` writes nothing, exits non-zero and says what didn't
+    match.
 - **`restore`** recreates each saved session from the latest snapshot, unless that session is
   already live, and prints what it `created`, `skipped` and why anything `failed`. One session
   failing doesn't stop the others; `restore` exits non-zero if any failed. Running it twice
@@ -127,6 +136,11 @@ Each restored block's last command is typed at its prompt but **never run**: pre
 resume, edit it, or clear it. Only single-line commands are typed; a block with no last
 command gets an empty prompt. A restored block keeps its last command through later saves and
 restores until you run something new in it.
+
+A block the recorder never recorded anything in, such as one whose shell started before you
+loaded the recorder, falls back to the program running in it at save time: `nvim`, a dev server
+or a nested shell comes back with its full command line typed at the prompt. Arguments come
+from `ps`, which drops their quoting. A block that was sitting at a prompt gets an empty prompt.
 
 Restore recognises sessions by where they came from, not by label: two saved sessions with the
 same label both come back, a restored session you rename still counts as live, and a session
@@ -165,6 +179,12 @@ blocks that no longer exist and the `lineage.json` entries of sessions that no l
 the directory doesn't grow forever. A save that fails or writes nothing removes nothing. The
 recorder finds the state directory the same way, so set
 `REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
+
+Snapshots and recorder files hold commands, and commands can hold secrets, so the state
+directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
+rex-resurrect writes its own files with mode `0600`, and the recorder keeps its files in a
+`0700` directory. Every file is written atomically (a temporary file, then a rename), so a
+crash never leaves a partial snapshot or record behind.
 
 ## Development
 

@@ -9,6 +9,9 @@
 //! Each module owns the names of its files inside it.
 
 use std::ffi::OsString;
+use std::fs;
+use std::io::Write;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::error::{Context, Error, Result};
@@ -36,6 +39,22 @@ impl StateDir {
     pub fn join(&self, name: impl AsRef<Path>) -> PathBuf {
         self.root.join(name)
     }
+
+    /// Creates the state directory if needed and makes it private (`0700`):
+    /// snapshots and recorder files hold commands, and commands can hold
+    /// secrets. An existing directory others can access is tightened.
+    pub fn make_private(&self) -> Result<()> {
+        create_private_dirs(&self.root)?;
+        let mode = fs::metadata(&self.root)
+            .with_context(|| format!("reading {}", self.root.display()))?
+            .permissions()
+            .mode();
+        if mode & 0o077 != 0 {
+            fs::set_permissions(&self.root, fs::Permissions::from_mode(0o700))
+                .with_context(|| format!("making {} private", self.root.display()))?;
+        }
+        Ok(())
+    }
 }
 
 fn resolve(
@@ -55,19 +74,77 @@ fn resolve(
     home.map(|home| PathBuf::from(home).join(".local/state/rex-resurrect"))
 }
 
-/// Writes a state file, creating its parent directories. Every state file is
-/// written through here.
+/// Writes a state file atomically, readable and writable by the user only
+/// (`0600`): the contents go to a temporary file next to it (see
+/// [`temp_path`]), which is then renamed over `path`, so neither a reader
+/// nor a crash ever sees a partial file. Missing parent directories are
+/// created private (`0700`). Every state file is written through here.
 pub fn write_file(path: &Path, contents: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+    create_private_dirs(parent_of(path))?;
+    let temp = temp_path(path);
+    let written = write_new_private_file(&temp, contents).and_then(|()| fs::rename(&temp, path));
+    if written.is_err() {
+        let _ = fs::remove_file(&temp);
     }
-    std::fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
+    written.with_context(|| format!("writing {}", path.display()))
+}
+
+/// Points the symlink `link` at `target`, atomically: a new link is renamed
+/// over the old one, so `link` never goes missing.
+pub fn write_symlink(link: &Path, target: &Path) -> Result<()> {
+    create_private_dirs(parent_of(link))?;
+    let temp = temp_path(link);
+    let _ = fs::remove_file(&temp);
+    let written = std::os::unix::fs::symlink(target, &temp).and_then(|()| fs::rename(&temp, link));
+    if written.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    written.with_context(|| format!("pointing {} at {}", link.display(), target.display()))
+}
+
+/// Where [`write_file`] stages `path`: `.<name>.<pid>.tmp` in the same
+/// directory. Hidden and without the real file's extension, so listings
+/// that pick files by extension never see one, even a leftover from a crash.
+pub fn temp_path(path: &Path) -> PathBuf {
+    let name = path
+        .file_name()
+        .expect("state files have a file name")
+        .to_string_lossy();
+    path.with_file_name(format!(".{name}.{}.tmp", std::process::id()))
+}
+
+fn write_new_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    // Left over from a crashed run whose process had the same pid.
+    let _ = fs::remove_file(path);
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(contents)?;
+    file.sync_all()
+}
+
+/// Creates `dir` and any missing parents as `0700`. Existing directories are
+/// left as they are.
+fn create_private_dirs(dir: &Path) -> Result<()> {
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+        .with_context(|| format!("creating {}", dir.display()))
+}
+
+fn parent_of(path: &Path) -> &Path {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    }
 }
 
 /// Reads a state file; `None` if it doesn't exist.
 pub fn read_file(path: &Path) -> Result<Option<Vec<u8>>> {
-    match std::fs::read(path) {
+    match fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),

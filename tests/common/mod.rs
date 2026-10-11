@@ -22,8 +22,9 @@
 //! Seams for later tests:
 //! - recorder: `TestEnv::builder().zshrc_line("source …").build()`;
 //! - custom init.lua: `env.server().init_lua("…").start()`;
-//! - stub `rex`: `env.resurrect(&server).path_prepend(stub_dir)`
-//!   (the harness itself always uses the real `rex`, see [`server::rex_bin`]).
+//! - stub `rex`: [`RexStub`], put first on one run's `PATH` with
+//!   `env.resurrect(&server).path_prepend(stub.dir())` (the harness itself
+//!   always uses the real `rex`, see [`server::rex_bin`]).
 
 #![allow(dead_code, unused_imports)]
 
@@ -31,6 +32,7 @@ pub mod env;
 pub mod fixture;
 pub mod resurrect;
 pub mod server;
+pub mod stub;
 pub mod tempdir;
 pub mod zsh;
 
@@ -39,3 +41,4 @@ pub use fixture::{FixtureSession, Layout, Shape, Window, block, hsplit, shell, v
 pub use fixture::{WindowLabels, default_window_label, labels};
 pub use resurrect::{ResurrectCmd, RunOutput, Running};
 pub use server::{Server, SessionSummary};
+pub use stub::RexStub;
