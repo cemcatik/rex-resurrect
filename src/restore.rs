@@ -283,10 +283,12 @@ fn selected_sessions<'a>(
 }
 
 /// Seeds each new block's recorder file with the command restore typed at its
-/// prompt. Typed input never reaches the recorder (nothing ran), so without
-/// this the next save would find no last command. With it, the command
-/// carries forward through any number of restores until the block's shell
-/// records a new one.
+/// prompt, or a record that it has no last command. Typed input never
+/// reaches the recorder (nothing ran), so without this the next save would
+/// find no last command. With it, the command carries forward through any
+/// number of restores until the block's shell records a new one. And a block
+/// restored with no last command keeps none: save never mistakes a program
+/// in its foreground (its shell still starting, say) for one.
 ///
 /// `session.create` returns each window's block IDs in layout order
 /// (depth-first, `before` then `after`), the order `SavedLayout::blocks`
@@ -318,9 +320,7 @@ fn carry_forward(
             )));
         }
         for (block, block_id) in blocks.into_iter().zip(&created_window.block_ids) {
-            if let Some(command) = create::typed_command(block) {
-                recorder.record(block_id, command)?;
-            }
+            recorder.record(block_id, create::typed_command(block))?;
         }
     }
     Ok(())

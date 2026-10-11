@@ -83,7 +83,7 @@ A command the recorder doesn't record, leaving the previous last command in plac
 _Avoid_: skip list, skipped command
 
 **Last command**:
-The command a restored shell block gets typed at its prompt, never run: the most recent command the block's outermost shell recorded. A restored block starts out with the last command it was restored with and keeps it, across any number of server instances, until its shell records a new one. A block with neither falls back to the program in its foreground.
+The command a restored shell block gets typed at its prompt, never run: the most recent command the block's outermost shell recorded. A restored block starts out with the last command it was restored with, or with none, and keeps that, across any number of server instances, until its shell records a new one. Only a block nothing has recorded anything for (its shell started before the recorder was installed) falls back to the program in its foreground.
 _Avoid_: last history entry
 
 ### Restoring

@@ -1,6 +1,6 @@
 //! The program in a shell block's foreground: the last command of a block
-//! whose shell has recorded none, because it started before the recorder was
-//! installed.
+//! nothing has recorded anything for (no recorder file), because its shell
+//! started before the recorder was installed.
 
 use crate::error::Result;
 use crate::process;

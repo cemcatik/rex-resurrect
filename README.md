@@ -154,6 +154,9 @@ A block the recorder never recorded anything in, such as one whose shell started
 loaded the recorder, falls back to the program running in it at save time: `nvim`, a dev server
 or a nested shell comes back with its full command line typed at the prompt. Arguments come
 from `ps`, which drops their quoting. A block that was sitting at a prompt gets an empty prompt.
+A block that restore created never falls back: restore records the last command it typed there,
+or that there was none, so a save that runs while the block's shell is still starting never
+mistakes the startup for a command.
 
 Restore recognises sessions by where they came from, not by label: two saved sessions with the
 same label both come back, a restored session you rename still counts as live, and a session
@@ -193,7 +196,7 @@ It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which l
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
 sessions that are already live. `last-restored-instance` names the server instance restore last
 ran in, and `restore.lock` makes restores take turns. `recorder/` holds one file per block with
-its last command. Each save that writes a snapshot then removes the `recorder/` files of
+its last command, or an empty line for a block restore created with none. Each save that writes a snapshot then removes the `recorder/` files of
 blocks that no longer exist and the `lineage.json` entries of sessions that no longer exist, so
 the directory doesn't grow forever. A save that fails or writes nothing removes nothing.
 `scrollback/` holds each snapshot's block scrollback, which goes when its snapshot goes; a block

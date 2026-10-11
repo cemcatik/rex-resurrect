@@ -127,8 +127,10 @@ fn a_block_showing_a_full_screen_program_gets_no_scrollback_replay() {
 
 #[test]
 fn a_block_restored_with_its_scrollback_saves_and_restores_again_like_any_other() {
-    // No recorder, so save falls back to the program in a block's foreground:
-    // the way the replay starts the shell mustn't look like one.
+    // No recorder. Restore records that a block it created with no last
+    // command has none, so save never falls back to the program in its
+    // foreground: neither the way the replay starts the shell nor a program
+    // the user starts in it becomes a last command.
     let env = TestEnv::new();
     let server = env.start_server();
     let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
@@ -154,6 +156,16 @@ fn a_block_restored_with_its_scrollback_saves_and_restores_again_like_any_other(
     let tail = "tail -f /dev/null";
     server.run(&restored, &blocks[1], tail);
     server.wait_for_foreground(&restored, &blocks[1], "tail");
+    // Rex reports the program as it does in any block: run by the block's
+    // login shell, under login(1).
+    let process = server.block_method(&restored, &blocks[1], "process", json!({}));
+    let ancestors = process["ancestors"].as_array().expect("ancestors");
+    let names: Vec<&str> = ancestors
+        .iter()
+        .filter_map(|a| a["name"].as_str())
+        .collect();
+    assert_eq!(names, ["zsh", "login"], "{process}");
+    assert_eq!(ancestors[0]["argv0"], "-zsh", "{process}");
 
     env.save(&server);
     server.kill_session(&restored);
@@ -161,18 +173,21 @@ fn a_block_restored_with_its_scrollback_saves_and_restores_again_like_any_other(
 
     let again = server.the_session_labelled("zz-again");
     let blocks = server.block_ids(&again);
-    server.wait_for_empty_prompt(&again, &blocks[0]);
+    for block in &blocks {
+        server.wait_for_empty_prompt(&again, block);
+    }
     std::thread::sleep(std::time::Duration::from_millis(500));
-    let idle = server.capture(&again, &blocks[0]);
-    assert!(
-        idle.trim_end().ends_with(" %"),
-        "the idle block gets no last command:\n{idle}"
-    );
+    let [idle, ran_tail] = [0, 1].map(|i| server.capture(&again, &blocks[i]));
+    for capture in [&idle, &ran_tail] {
+        assert!(
+            capture.trim_end().ends_with(" %"),
+            "a block restored with no last command gets none:\n{capture}"
+        );
+    }
     assert!(
         above_prompt(&idle).contains(&"zz-first-run"),
         "its scrollback carries over from before the first restore:\n{idle}"
     );
-    server.wait_for_typed(&again, &blocks[1], tail);
 }
 
 #[test]

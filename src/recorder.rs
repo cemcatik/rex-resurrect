@@ -8,6 +8,13 @@
 //!   `REX_BLOCK` in the block's shell);
 //! - its contents: the block's last command, UTF-8 text on one line, ending
 //!   in a newline (accepted without one);
+//! - an empty line (or an empty file) records that the block has **no last
+//!   command**. Restore writes one for each block it creates with nothing to
+//!   type, so save never falls back to the program in such a block's
+//!   foreground (see `foreground`): that fallback is only for blocks nothing
+//!   has recorded anything for, because their shell started before the
+//!   recorder was installed. Recorders never write one: they only record
+//!   commands;
 //! - written to a temporary file whose name starts with `.` in the same
 //!   directory, then renamed over the record;
 //! - the directory is private (0700): commands can hold secrets.
@@ -27,6 +34,17 @@ pub struct RecorderFiles {
     dir: PathBuf,
 }
 
+/// What a block's recorder file says.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Recorded {
+    /// There's no recorder file (or it isn't UTF-8 text): nothing has
+    /// recorded anything for the block.
+    Nothing,
+    /// The block has no last command.
+    NoLastCommand,
+    LastCommand(String),
+}
+
 impl RecorderFiles {
     pub fn new(state: &StateDir) -> RecorderFiles {
         RecorderFiles {
@@ -34,29 +52,34 @@ impl RecorderFiles {
         }
     }
 
-    /// The block's last command, or `None` if nothing was ever recorded for it.
-    pub fn last_command(&self, block_id: &str) -> Result<Option<String>> {
+    /// What the block's recorder file says.
+    pub fn read(&self, block_id: &str) -> Result<Recorded> {
         let Some(path) = self.file(block_id) else {
-            return Ok(None);
+            return Ok(Recorded::Nothing);
         };
         let Some(bytes) = state::read_file(&path)? else {
-            return Ok(None);
+            return Ok(Recorded::Nothing);
         };
         let Ok(text) = String::from_utf8(bytes) else {
-            return Ok(None);
+            return Ok(Recorded::Nothing);
         };
         let command = text.strip_suffix('\n').unwrap_or(&text);
-        Ok((!command.is_empty()).then(|| command.to_string()))
+        Ok(if command.is_empty() {
+            Recorded::NoLastCommand
+        } else {
+            Recorded::LastCommand(command.to_string())
+        })
     }
 
-    /// Records `command` as the block's last command, as its recorder would.
-    pub fn record(&self, block_id: &str, command: &str) -> Result<()> {
+    /// Records `command` as the block's last command, as its recorder would,
+    /// or, for `None`, that the block has no last command.
+    pub fn record(&self, block_id: &str, command: Option<&str>) -> Result<()> {
         let path = self
             .file(block_id)
             .ok_or_else(|| Error::new(format!("block ID {block_id:?} can't name a file")))?;
         // Through a hidden temp file and a rename, into a private directory,
         // as the format above asks.
-        state::write_file(&path, format!("{command}\n").as_bytes())
+        state::write_file(&path, format!("{}\n", command.unwrap_or("")).as_bytes())
     }
 
     /// Removes the records of blocks `is_live` says aren't live, unless they

@@ -6,7 +6,7 @@ use crate::error::{Error, Result};
 use crate::foreground;
 use crate::label;
 use crate::lineage::Lineage;
-use crate::recorder::RecorderFiles;
+use crate::recorder::{Recorded, RecorderFiles};
 use crate::rex::Rex;
 use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, WindowView};
 use crate::scrollback::{ScrollbackStore, SnapshotScrollback};
@@ -134,9 +134,10 @@ fn saved_layout(
 }
 
 /// A local shell block in its working directory, with its recorder file as
-/// the source of truth for its last command. A block without one (its shell
-/// started before the recorder was installed) falls back to the program in
-/// its foreground. Its scrollback is saved too. A non-terminal block has no
+/// the source of truth for its last command, including a record that it has
+/// none. A block without one (its shell started before the recorder was
+/// installed) falls back to the program in its foreground. Its scrollback is
+/// saved too. A non-terminal block has no
 /// working directory, and a remote block's is on another host, so either is
 /// saved as a plain shell in the home directory.
 fn saved_block(
@@ -149,9 +150,10 @@ fn saved_block(
         return Ok(local.plain_shell());
     }
     let (session_id, block_id) = (&session.session_id, &block.block_id);
-    let last_command = match local.recorder.last_command(block_id)? {
-        Some(recorded) => Some(recorded),
-        None => foreground::foreground_command(rex, session_id, block_id)?,
+    let last_command = match local.recorder.read(block_id)? {
+        Recorded::LastCommand(command) => Some(command),
+        Recorded::NoLastCommand => None,
+        Recorded::Nothing => foreground::foreground_command(rex, session_id, block_id)?,
     };
     Ok(SavedBlock {
         label: label::user_set_block_label(block).map(str::to_owned),
