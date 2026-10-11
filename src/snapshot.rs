@@ -49,6 +49,9 @@ pub struct SavedSession {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SavedWindow {
+    /// Only a user-set label; omitted so Rex generates a fresh default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     /// The window's tiled layout.
     pub layout: SavedLayout,
 }
@@ -73,5 +76,8 @@ pub struct SavedSplit {
 /// A shell block.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SavedBlock {
+    /// Only a user-set label; omitted so Rex uses its default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     pub working_directory: PathBuf,
 }

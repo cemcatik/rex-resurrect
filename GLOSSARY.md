@@ -46,7 +46,7 @@ The display name Rex shows for a session, window or block. Labels aren't unique.
 _Avoid_: name, title
 
 **Default label**:
-The label Rex generates for a window or block nobody labeled: `Window` plus the last 8 hex characters of the window's ID, or `shell` for a shell block. Any other label is user-set. Rex also generates labels for sessions (random word pairs such as `amber-ridge`), but those can't be told apart from user-set ones, so a session never has a default label.
+The label Rex generates for a window or block nobody labeled: `Window` plus the last 8 hex characters of the window's ID, or `shell` for a shell block. A block whose label was cleared gets `Block` plus the last 8 hex characters of its ID, also a default label. Any other label is user-set. Rex also generates labels for sessions (random word pairs such as `amber-ridge`), but those can't be told apart from user-set ones, so a session never has a default label.
 
 **Working directory**:
 The directory a shell block's shell was last in.

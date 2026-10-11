@@ -23,7 +23,7 @@ pub fn create_request(saved: &SavedSession, home: &Path) -> CreateSession {
 
 fn create_window(window: &SavedWindow, home: &Path) -> CreateWindow {
     CreateWindow {
-        window_label: None,
+        window_label: window.label.clone(),
         layout: create_layout(&window.layout, home),
     }
 }
@@ -51,7 +51,7 @@ fn create_block(block: &SavedBlock, home: &Path) -> CreateBlock {
     };
     CreateBlock {
         flavor: SHELL_FLAVOR.to_string(),
-        label: None,
+        label: block.label.clone(),
         options: TerminalOptions {
             cwd: Some(cwd),
             initial_input: None,

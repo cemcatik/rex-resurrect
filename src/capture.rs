@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use crate::error::{Error, Result};
+use crate::label;
 use crate::lineage::Lineage;
 use crate::rex::Rex;
 use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, WindowView};
@@ -37,10 +38,12 @@ impl Local {
                 .is_none_or(|host_id| host_id == self.host_id)
     }
 
-    /// A plain shell block in the home directory: what a block that can't be
-    /// saved as it is comes back as, so the layout around it stays intact.
+    /// A plain shell block (default label) in the home directory: what a
+    /// block that can't be saved as it is comes back as, so the layout around
+    /// it stays intact.
     fn plain_shell(&self) -> SavedBlock {
         SavedBlock {
+            label: None,
             working_directory: self.home.clone(),
         }
     }
@@ -83,7 +86,10 @@ fn saved_window(
         Some(layout) => saved_layout(rex, local, session, tiled, layout)?,
         None => SavedLayout::Block(local.plain_shell()),
     };
-    Ok(SavedWindow { layout })
+    Ok(SavedWindow {
+        label: label::user_set_window_label(window).map(str::to_owned),
+        layout,
+    })
 }
 
 fn saved_layout(
@@ -124,6 +130,7 @@ fn saved_block(
         return Ok(local.plain_shell());
     }
     Ok(SavedBlock {
+        label: label::user_set_block_label(block).map(str::to_owned),
         working_directory: workdir::working_directory(rex, &session.session_id, &block.block_id)?,
     })
 }

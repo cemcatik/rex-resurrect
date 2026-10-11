@@ -1,5 +1,5 @@
 //! Save, kill, restore: the session comes back with the same windows, splits,
-//! ratios and working directories.
+//! ratios, working directories and user-set labels.
 
 mod common;
 
@@ -9,17 +9,26 @@ use common::*;
 use serde_json::json;
 
 #[test]
-fn restore_recreates_windows_splits_ratios_and_working_directories() {
+fn restore_recreates_windows_splits_ratios_working_directories_and_labels() {
     let env = TestEnv::new();
     let server = env.start_server();
     let [a, spaced, c, d, e, f, moved] =
         ["a", "with space", "c", "d", "e", "f", "moved"].map(|name| env.mkdir(name));
 
     // Window 1: a 70/30 side-by-side split whose left half is stacked 35/65.
-    let editor = || hsplit(0.7, vsplit(0.35, shell(&a), shell(&spaced)), shell(&c));
+    let editor = || {
+        hsplit(
+            0.7,
+            vsplit(0.35, shell(&a).labeled("notes"), shell(&spaced)),
+            shell(&c),
+        )
+    };
     // Window 2: a different tree, so window order shows in the comparison.
     let tools = |last: &Path| vsplit(0.25, shell(&d), hsplit(0.6, shell(&e), shell(last)));
-    let fixture = server.create_session("zz-round-trip", &[window(editor()), window(tools(&f))]);
+    let fixture = server.create_session(
+        "zz-round-trip",
+        &[window(editor()).labeled("editor"), window(tools(&f))],
+    );
     server.wait_for_pwds(&fixture);
 
     // The last block moves after it started: save must read where it is now.
@@ -42,6 +51,30 @@ fn restore_recreates_windows_splits_ratios_and_working_directories() {
     assert_eq!(
         server.window_shapes(&restored[0]),
         vec![editor().expected_shape(), tools(&moved).expected_shape()],
+    );
+
+    let labels = labels(&server.view(&restored[0]));
+    assert_eq!(
+        labels[0].label, "editor",
+        "the labeled window keeps its label"
+    );
+    assert_eq!(
+        labels[1].label,
+        default_window_label(&labels[1].window_id),
+        "the unlabeled window gets a fresh default label"
+    );
+    assert_ne!(
+        labels[1].label,
+        default_window_label(&fixture.windows[1].id),
+        "not the old default label"
+    );
+    assert_eq!(
+        labels
+            .iter()
+            .map(|w| w.block_labels.clone())
+            .collect::<Vec<_>>(),
+        vec![["notes", "shell", "shell"], ["shell", "shell", "shell"]],
+        "the labeled block keeps its label, the others get Rex's default"
     );
 }
 

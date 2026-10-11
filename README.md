@@ -7,8 +7,8 @@ rex-resurrect is a single self-contained binary. It talks to Rex only through th
 needs nothing else at runtime.
 
 > **Status:** early. `save` and `restore` bring back each session's label, its windows in order,
-> each window's split layout and ratios, and each block's working directory. Window and block
-> labels, last commands, autosave and auto-restore are coming.
+> each window's split layout and ratios, window and block labels you set, and each block's
+> working directory. Last commands, autosave and auto-restore are coming.
 
 ## Install
 
@@ -29,7 +29,9 @@ rex-resurrect restore   # recreate the latest snapshot's sessions that aren't li
 ```
 
 - **`save`** records every session: its label, its windows in order, each window's tiled split
-  layout (directions and ratios) and each block's working directory. Each save is a new
+  layout (directions and ratios) and each block's working directory. Window and block labels
+  are recorded only if you set them; windows and blocks with Rex's default labels get fresh
+  default labels on restore, not stale copies like `Window 1a2b3c4d`. Each save is a new
   timestamped snapshot; `latest.json` points at the newest.
 - **`restore`** recreates each saved session from the latest snapshot, unless that session is
   already live, and prints what it `created`, `skipped` and why anything `failed`. One session
