@@ -59,8 +59,36 @@ New shells pick it up. The recorder:
 - records a command as it starts, so a program still running at save time (`nvim`, a dev
   server, `claude`) counts too;
 - skips multi-line commands, keeping the previous one;
+- skips trivial commands on its ignore list (below), keeping the previous one, so the restored
+  prompt shows your last meaningful command;
 - tracks the last command itself rather than reading your history, so `SHARE_HISTORY` and
   per-directory history don't confuse it.
+
+#### The ignore list
+
+By default the recorder ignores `ls`, `ll`, `la`, `l`, `cd`, `pushd`, `popd`, `pwd`, `clear`,
+`reset` and `exit`. A command line is ignored when it runs one of these on its own, with any
+arguments: `ls -la` and `cd src` are ignored, but `cd src && make` is recorded. Commands are
+matched by name as you typed them, so an alias counts under its own name.
+
+The list is the zsh array `REX_RESURRECT_IGNORE`. You don't have to set it. To change it, set it
+in `~/.zshrc`:
+
+```sh
+# After loading the recorder: add to the defaults.
+REX_RESURRECT_IGNORE+=(htop tig)
+
+# Anywhere in ~/.zshrc: replace the defaults (before or after loading the recorder).
+REX_RESURRECT_IGNORE=(ls cd clear)
+
+# Ignore nothing but multi-line commands.
+REX_RESURRECT_IGNORE=()
+```
+
+The recorder fills in the defaults when it loads, unless `REX_RESURRECT_IGNORE` is already set.
+So adding to the list only works after loading the recorder; with oh-my-zsh, that means after
+`source $ZSH/oh-my-zsh.sh`. The list is read at every command, so a change applies straight
+away.
 
 ## Usage
 
@@ -132,7 +160,10 @@ It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which l
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
 sessions that are already live. `last-restored-instance` names the server instance restore last
 ran in, and `restore.lock` makes restores take turns. `recorder/` holds one file per block with
-its last command. The recorder finds the state directory the same way, so set
+its last command. Each save that writes a snapshot then removes the `recorder/` files of
+blocks that no longer exist and the `lineage.json` entries of sessions that no longer exist, so
+the directory doesn't grow forever. A save that fails or writes nothing removes nothing. The
+recorder finds the state directory the same way, so set
 `REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
 
 ## Development
