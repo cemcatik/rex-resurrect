@@ -8,7 +8,8 @@ needs nothing else at runtime.
 
 > **Status:** early. `save` and `restore` bring back each session's label, its windows in order,
 > each window's split layout and ratios, window and block labels you set, each block's working
-> directory and, with the zsh recorder loaded, each block's last command typed at its prompt.
+> directory and each block's last command typed at its prompt: the one the zsh recorder
+> recorded or, without one, the program that was running in the block.
 > Autosave and auto-restore are coming.
 
 ## Install
@@ -113,6 +114,11 @@ Each restored block's last command is typed at its prompt but **never run**: pre
 resume, edit it, or clear it. Only single-line commands are typed; a block with no last
 command gets an empty prompt. A restored block keeps its last command through later saves and
 restores until you run something new in it.
+
+A block the recorder never recorded anything in, such as one whose shell started before you
+loaded the recorder, falls back to the program running in it at save time: `nvim`, a dev server
+or a nested shell comes back with its full command line typed at the prompt. Arguments come
+from `ps`, which drops their quoting. A block that was sitting at a prompt gets an empty prompt.
 
 Restore recognises sessions by where they came from, not by label: two saved sessions with the
 same label both come back, a restored session you rename still counts as live, and a session
