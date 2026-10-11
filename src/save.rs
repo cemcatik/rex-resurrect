@@ -88,8 +88,8 @@ fn save_snapshot(
     retention: Retention,
     _options: &SaveOptions,
 ) -> Result<Saved> {
-    // Taken first: each block's scrollback is saved under the snapshot's
-    // name as the walk reaches it.
+    // Taken first: each kept session's scrollback is saved under the
+    // snapshot's name as the walk reaches it.
     let taken_at = Timestamp::now();
     let lineages = LineageMap::load(state)?;
     let local = capture::Local::read(rex, state, taken_at)?;
@@ -99,12 +99,13 @@ fn save_snapshot(
         let view = rex.view_session(&summary.session_id)?;
         live.add(&view);
         let lineage = lineages.lineage_of(&view.session_id);
-        let saved = capture::saved_session(rex, &local, &view, lineage)
-            .with_context(|| format!("saving session {:?} ({})", view.label, view.session_id))?;
-        if worth_saving(&saved, &local.home) {
+        let saving = || format!("saving session {:?} ({})", view.label, view.session_id);
+        let captured = capture::saved_session(rex, &local, &view, lineage).with_context(saving)?;
+        if worth_saving(&captured.saved, &local.home) {
+            let saved = captured
+                .with_scrollback(rex, &local.scrollback)
+                .with_context(saving)?;
             sessions.push(saved);
-        } else {
-            local.scrollback.discard(&saved)?;
         }
     }
     if sessions.is_empty() {

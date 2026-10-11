@@ -115,6 +115,18 @@ impl SavedLayout {
             }
         }
     }
+
+    /// [`SavedLayout::blocks`], to change.
+    pub fn blocks_mut(&mut self) -> Vec<&mut SavedBlock> {
+        match self {
+            SavedLayout::Block(block) => vec![block],
+            SavedLayout::Split(split) => {
+                let mut blocks = split.before.blocks_mut();
+                blocks.extend(split.after.blocks_mut());
+                blocks
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

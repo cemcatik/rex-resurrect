@@ -65,6 +65,13 @@ fn unix_endpoint(socket: &Path) -> String {
     endpoint
 }
 
+/// A block on the server: the two IDs every block method needs.
+#[derive(Debug, Clone)]
+pub struct BlockRef {
+    pub session_id: String,
+    pub block_id: String,
+}
+
 /// A handle on one Rex server, reached through the `rex` CLI on `PATH`.
 #[derive(Debug, Clone)]
 pub struct Rex {
