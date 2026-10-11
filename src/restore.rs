@@ -24,6 +24,16 @@ pub struct RestoreOptions {
     pub dry_run: bool,
 }
 
+impl RestoreOptions {
+    /// Whether this restore counts as restoring the server instance. A dry
+    /// run creates nothing and a single-session restore leaves the other
+    /// sessions out, so a save after either still restores first. Restoring
+    /// a whole older snapshot counts.
+    fn restores_whole_snapshot(&self) -> bool {
+        !self.dry_run && self.session.is_none()
+    }
+}
+
 /// What happened to one saved session.
 #[derive(Debug)]
 pub enum Outcome {
@@ -125,8 +135,8 @@ pub fn restore_unrestored_instance(
 }
 
 /// Restores a snapshot and, once that has finished, records the server
-/// instance it restored into. Sessions that failed to create don't stop it
-/// from finishing.
+/// instance it restored into, unless `options` restore less than a whole
+/// snapshot. Sessions that failed to create don't stop it from finishing.
 pub fn restore(
     rex: &Rex,
     state: &StateDir,
@@ -135,7 +145,9 @@ pub fn restore(
 ) -> Result<RestoreReport> {
     let instance_id = rex.server_status()?.instance_id;
     let report = restore_sessions(rex, state, options)?;
-    lock.record_restored(&instance_id)?;
+    if options.restores_whole_snapshot() {
+        lock.record_restored(&instance_id)?;
+    }
     Ok(report)
 }
 

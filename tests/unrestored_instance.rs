@@ -125,6 +125,58 @@ fn after_a_save_that_restored_first_save_does_not_restore_again() {
     assert!(server.sessions().is_empty(), "{:?}", server.sessions());
 }
 
+/// Saves zz-one and zz-two on an earlier server, then on a fresh one runs
+/// `restore <args>` followed by `save`.
+fn restore_with_then_save(args: &[&str]) -> Server {
+    let env = TestEnv::new();
+    saved_on_an_earlier_server(&env, &["zz-one", "zz-two"]);
+    let server = env.start_server();
+    env.resurrect(&server)
+        .arg("restore")
+        .args(args)
+        .run()
+        .assert_success();
+    env.save(&server);
+    server
+}
+
+#[test]
+fn a_dry_run_restore_does_not_count_as_restoring_the_instance() {
+    let server = restore_with_then_save(&["--dry-run"]);
+    assert_eq!(sorted_labels(&server), ["zz-one", "zz-two"]);
+}
+
+#[test]
+fn a_single_session_restore_does_not_count_as_restoring_the_instance() {
+    let server = restore_with_then_save(&["--session", "zz-one"]);
+    assert_eq!(sorted_labels(&server), ["zz-one", "zz-two"]);
+}
+
+#[test]
+fn restoring_a_whole_older_snapshot_counts_as_restoring_the_instance() {
+    let env = TestEnv::new();
+    {
+        let before = env.start_server();
+        for label in ["zz-old", "zz-new"] {
+            let fixture = before.create_session(label, &[window(shell(env.mkdir(label)))]);
+            before.wait_for_pwds(&fixture);
+            env.save(&before);
+        }
+    }
+    let server = env.start_server();
+    let listed = env.resurrect(&server).arg("list").run().assert_success();
+    // Newest first: the last line is the snapshot holding only zz-old.
+    let oldest = listed.stdout.lines().last().unwrap();
+    let id = oldest.split("  ").next().unwrap();
+
+    env.resurrect(&server)
+        .args(["restore", "--snapshot", id])
+        .run()
+        .assert_success();
+    env.save(&server);
+    assert_eq!(sorted_labels(&server), ["zz-old"]);
+}
+
 #[test]
 fn two_restores_started_at_once_create_no_duplicates() {
     let env = TestEnv::new();

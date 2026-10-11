@@ -62,8 +62,10 @@ you created by hand under a saved label doesn't (see
 After a server restart, the first `save` restores before it saves, unless a `restore` already
 ran on that server. A save that runs on a freshly started server (an autosave, say) therefore
 can't replace your latest snapshot with a near-empty one. A save on a server already restored
-into never restores again, even if you've killed restored sessions since. Only one restore runs
-at a time, and a `save` that starts during a restore waits for it to finish.
+into never restores again, even if you've killed restored sessions since. A `--dry-run` or
+`--session` restore doesn't count, because it leaves sessions out; restoring a whole older
+snapshot does. Only one restore runs at a time, and a `save` that starts during a restore waits
+for it to finish.
 
 rex-resurrect never starts a Rex server. If Rex isn't running, `save` and `restore` fail and
 say so.
