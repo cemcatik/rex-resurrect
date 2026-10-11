@@ -85,7 +85,6 @@ pub fn save(
     snapshot
         .validate()
         .with_context(|| "the snapshot failed validation, so nothing was written")?;
-    state.make_private()?;
     let path = SnapshotStore::new(state).write(&snapshot, taken_at, retention)?;
     Ok(Saved::Snapshot {
         path,

@@ -96,7 +96,7 @@ sessions that are already live. `last-restored-instance` names the server instan
 ran in, and `restore.lock` makes restores take turns.
 
 Snapshots can contain commands, and commands can contain secrets, so the state directory is
-readable by you only (`save` makes it `0700` if it isn't) and every file in it is written with
+readable by you only (`save` and `restore` make it `0700` if it isn't) and every file in it is written with
 mode `0600`. Files are written atomically (a temporary file, then a rename), so a crash never
 leaves a partial snapshot behind.
 
