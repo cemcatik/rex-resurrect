@@ -507,6 +507,13 @@ pub fn wait_for<T>(what: &str, f: impl FnMut() -> Option<T>) -> T {
         .unwrap_or_else(|| panic!("timed out after {WAIT:?} waiting for {what}"))
 }
 
+/// Waits until `path` exists, e.g. a marker file a fixture command creates.
+pub fn wait_for_file(path: &Path) {
+    wait_for(&format!("{} to exist", path.display()), || {
+        path.exists().then_some(())
+    });
+}
+
 /// Polls `f` until it returns `Some` or `timeout` passes.
 pub fn wait_for_or_none<T>(timeout: Duration, mut f: impl FnMut() -> Option<T>) -> Option<T> {
     let deadline = Instant::now() + timeout;

@@ -2,17 +2,10 @@
 
 mod common;
 
-use std::path::Path;
 use std::time::Duration;
 
-use common::server::wait_for;
+use common::server::wait_for_file;
 use common::*;
-
-fn wait_for_file(path: &Path) {
-    wait_for(&format!("{} to exist", path.display()), || {
-        path.exists().then_some(())
-    });
-}
 
 #[test]
 fn the_last_command_is_typed_at_the_prompt_after_restore_but_not_run() {

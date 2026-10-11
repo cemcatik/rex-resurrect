@@ -163,6 +163,32 @@ impl TestEnv {
         status["pid"].as_u64()
     }
 
+    /// Runs an interactive zsh outside Rex, on the harness config and
+    /// environment (so no `REX_BLOCK`) plus `extra_env`, feeding it `input`
+    /// on stdin until it exits at the end of it.
+    pub fn zsh_outside_rex(&self, extra_env: &[(&str, &str)], input: &str) {
+        use std::io::Write;
+        let mut child = Command::new("zsh")
+            .arg("-i")
+            .env_clear()
+            .envs(self.child_env())
+            .env("TERM", "dumb")
+            .envs(extra_env.iter().copied())
+            .current_dir(self.root())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("running zsh");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        child.wait().unwrap();
+    }
+
     /// Runs `rex-resurrect save` against `server` and asserts it succeeded.
     pub fn save(&self, server: &Server) -> super::resurrect::RunOutput {
         self.resurrect(server).arg("save").run().assert_success()
