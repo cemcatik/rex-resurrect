@@ -295,6 +295,36 @@ fn a_scheduled_save_saves_the_server_and_state_install_ran_with_though_launchd_g
     assert_eq!(server.session_ids_labelled("zz-autosaved").len(), 1);
 }
 
+#[test]
+fn installed_outside_rex_a_scheduled_save_saves_the_rex_apps_server() {
+    let env = TestEnv::new();
+    let launchd = FakeLaunchd::new(&env);
+    let server = env.start_server();
+    let fixture = server.create_session("zz-app", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    // The throwaway server plays the Rex app's: it answers at the app's
+    // socket path under this HOME.
+    let home = env.mkdir("home");
+    let app_socket = home.join("Library/Application Support/rex/server.sock");
+    std::fs::create_dir_all(app_socket.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(server.dir().join("s.sock"), &app_socket).unwrap();
+
+    // No REX_SERVER, as outside Rex. The harness sets XDG_RUNTIME_DIR, which
+    // moves rex's own default endpoint away from the app's server.
+    launchd
+        .aim(env.resurrect(&server))
+        .env_remove("REX_SERVER")
+        .env("HOME", &home)
+        .args(["autosave", "install"])
+        .run()
+        .assert_success();
+    launchd.the_agent().run_as_launchd(&env).assert_success();
+
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+    assert_eq!(server.session_ids_labelled("zz-app").len(), 1);
+}
+
 /// Asserts `out` tells the user how to remove the zsh recorder and the
 /// auto-restore line in Rex's init.lua.
 fn assert_explains_backing_out(out: &RunOutput) {
