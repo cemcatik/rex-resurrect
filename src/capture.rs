@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::error::{Error, Result};
 use crate::lineage::Lineage;
 use crate::rex::Rex;
-use crate::rex::api::{BlockView, LayerView, LayoutView, SessionView, WindowView};
+use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, WindowView};
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedSplit, SavedWindow};
 use crate::workdir;
 
@@ -65,7 +65,7 @@ fn saved_window(
         ))
     })?;
     let layout = match &tiled.layout {
-        Some(layout) => saved_layout(rex, session, tiled, layout)?,
+        Some(layout) => saved_layout(rex, local, session, tiled, layout)?,
         None => SavedLayout::Block(local.plain_shell()),
     };
     Ok(SavedWindow { layout })
@@ -73,6 +73,7 @@ fn saved_window(
 
 fn saved_layout(
     rex: &Rex,
+    local: &Local,
     session: &SessionView,
     layer: &LayerView,
     node: &LayoutView,
@@ -84,18 +85,28 @@ fn saved_layout(
                     "session.view: block {block_id} is in a layout but not in its layer's blocks"
                 ))
             })?;
-            Ok(SavedLayout::Block(saved_block(rex, session, block)?))
+            Ok(SavedLayout::Block(saved_block(rex, local, session, block)?))
         }
         LayoutView::Split(split) => Ok(SavedLayout::Split(SavedSplit {
             direction: split.direction,
             ratio: split.ratio,
-            before: Box::new(saved_layout(rex, session, layer, &split.before)?),
-            after: Box::new(saved_layout(rex, session, layer, &split.after)?),
+            before: Box::new(saved_layout(rex, local, session, layer, &split.before)?),
+            after: Box::new(saved_layout(rex, local, session, layer, &split.after)?),
         })),
     }
 }
 
-fn saved_block(rex: &Rex, session: &SessionView, block: &BlockView) -> Result<SavedBlock> {
+/// A shell block in its working directory. Any other block has no working
+/// directory to read, so it's saved as a plain shell in the home directory.
+fn saved_block(
+    rex: &Rex,
+    local: &Local,
+    session: &SessionView,
+    block: &BlockView,
+) -> Result<SavedBlock> {
+    if block.flavor != SHELL_FLAVOR {
+        return Ok(local.plain_shell());
+    }
     Ok(SavedBlock {
         working_directory: workdir::working_directory(rex, &session.session_id, &block.block_id)?,
     })

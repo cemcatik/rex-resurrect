@@ -8,10 +8,11 @@
 
 mod common;
 
-use std::path::Path;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 use common::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// `rex-resurrect <command>` against `server`, with `home` as its home directory.
 fn run_with_home(env: &TestEnv, server: &Server, home: &Path, command: &str) -> RunOutput {
@@ -20,6 +21,67 @@ fn run_with_home(env: &TestEnv, server: &Server, home: &Path, command: &str) -> 
         .arg(command)
         .run()
         .assert_success()
+}
+
+/// Writes a stand-in `rex` that reports one block of a live session as
+/// something a throwaway server can't create (a non-terminal block, a block
+/// on another host), and returns the directory holding it. Put it first on
+/// rex-resurrect's `PATH`.
+///
+/// - `session.view` of that session returns the real view, with `edit`
+///   applied to the block's entry in its layer's `blocks`;
+/// - terminal methods (`block.method`) on the block fail the way they do for a
+///   block that has none (exit 3, `method not found`);
+/// - every other call goes to the real `rex`, unchanged.
+fn stub_rex_reporting(
+    env: &TestEnv,
+    server: &Server,
+    session_id: &str,
+    block_id: &str,
+    edit: impl Fn(&mut Value),
+) -> PathBuf {
+    let mut view = server.view(session_id);
+    let entry = view["windows"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .flat_map(|window| window["layers"].as_array_mut().unwrap())
+        .flat_map(|layer| layer["blocks"].as_array_mut().unwrap())
+        .find(|block| block["block_id"] == block_id)
+        .unwrap_or_else(|| panic!("{block_id} isn't in session {session_id}"));
+    edit(entry);
+
+    let dir = env.mkdir("stub-rex");
+    let view_file = dir.join("view.json");
+    std::fs::write(&view_file, view.to_string()).unwrap();
+    let quoted = |s: &str| {
+        assert!(!s.contains('\''), "can't quote {s:?} for sh");
+        format!("'{s}'")
+    };
+    let script = format!(
+        r#"#!/bin/sh
+# Stand-in rex for one rex-resurrect test (see tests/block_fallbacks.rs).
+input=$(cat)
+case " $* " in
+  *" session.view "*)
+    case "$input" in *{session}*) cat {view}; exit 0 ;; esac ;;
+  *" block.method "*)
+    case "$input" in *{block}*)
+      echo 'Error: stream response "control-1" failed: method not found (status=404 code=method_not_found)' >&2
+      exit 3 ;;
+    esac ;;
+esac
+printf '%s' "$input" | exec {rex} "$@"
+"#,
+        session = quoted(session_id),
+        block = quoted(block_id),
+        view = quoted(view_file.to_str().unwrap()),
+        rex = quoted(common::server::rex_bin().to_str().unwrap()),
+    );
+    let stub = dir.join("rex");
+    std::fs::write(&stub, script).unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    dir
 }
 
 /// Moves a tiled block into a new floating layer of its window.
@@ -115,6 +177,51 @@ fn a_window_whose_blocks_all_float_restores_as_one_shell_in_the_home_directory_i
         "the emptied window keeps its place in the window order",
     );
     assert_eq!(floating_layers(&server, &restored[0]), [0, 0, 0]);
+}
+
+/// Saves a session whose middle block the stand-in `rex` reports through
+/// `edit`, restores it, and checks that only that block came back as a plain
+/// shell in the home directory, in its place in the split tree.
+fn assert_saved_as_a_plain_shell_in_home(label: &str, edit: impl Fn(&mut Value)) {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let home = env.mkdir("home");
+    let [a, odd, c] = ["a", "odd", "c"].map(|name| env.mkdir(name));
+    let layout = |middle: &Path| hsplit(0.3, shell(&a), vsplit(0.7, shell(middle), shell(&c)));
+    let fixture = server.create_session(label, &[window(layout(&odd))]);
+    server.wait_for_pwds(&fixture);
+    let stub = stub_rex_reporting(
+        &env,
+        &server,
+        &fixture.id,
+        &fixture.windows[0].block_ids[1],
+        edit,
+    );
+
+    env.resurrect(&server)
+        .env("HOME", &home)
+        .path_prepend(stub)
+        .arg("save")
+        .run()
+        .assert_success();
+    server.kill_session(&fixture.id);
+    run_with_home(&env, &server, &home, "restore");
+
+    let restored = server.session_ids_labelled(label);
+    assert_eq!(restored.len(), 1, "exactly one session restored");
+    assert_eq!(
+        server.window_shapes(&restored[0]),
+        vec![layout(&home).expected_shape()],
+    );
+}
+
+#[test]
+fn a_non_terminal_block_is_saved_as_a_plain_shell_in_the_home_directory() {
+    assert_saved_as_a_plain_shell_in_home("zz-non-terminal", |block| {
+        block["creator_name"] = json!("com.example.notes");
+        block["flavor"] = json!("com.example.notes.page");
+        block["label"] = json!("notes");
+    });
 }
 
 #[test]
