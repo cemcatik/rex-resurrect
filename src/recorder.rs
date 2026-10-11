@@ -93,14 +93,7 @@ impl RecorderFiles {
         is_live: impl Fn(&str) -> bool,
         kept_since: SystemTime,
     ) -> Result<()> {
-        let listing = || format!("listing {}", self.dir.display());
-        let entries = match std::fs::read_dir(&self.dir) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(e).with_context(listing),
-        };
-        for entry in entries {
-            let entry = entry.with_context(listing)?;
+        for entry in state::read_dir_or_empty(&self.dir)? {
             let name = entry.file_name();
             let Some(block_id) = name.to_str() else {
                 continue;
@@ -111,16 +104,12 @@ impl RecorderFiles {
             if is_live(block_id) {
                 continue;
             }
-            let metadata = entry.metadata().with_context(listing)?;
-            if !metadata.is_file() || metadata.modified().with_context(listing)? >= kept_since {
+            let reading = || format!("reading {}", path.display());
+            let metadata = entry.metadata().with_context(reading)?;
+            if !metadata.is_file() || metadata.modified().with_context(reading)? >= kept_since {
                 continue;
             }
-            match std::fs::remove_file(&path) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(e).with_context(|| format!("removing {}", path.display()));
-                }
-                _ => {}
-            }
+            state::remove_if_exists(&path)?;
         }
         Ok(())
     }

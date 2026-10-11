@@ -27,7 +27,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use crate::account::Account;
-use crate::error::{Context, Error, Result};
+use crate::error::{Error, Result};
 use crate::rex::api::{FormatArgs, TerminalOptions, TerminalProcess};
 use crate::rex::{BlockRef, Rex};
 use crate::snapshot::SavedBlock;
@@ -107,29 +107,10 @@ impl ScrollbackStore {
     /// snapshots still on disk), and anything a save left behind without
     /// writing its snapshot.
     pub fn remove_orphans(&self, snapshot_ids: &[String]) -> Result<()> {
-        let dir = self.state.join(DIR);
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(e).with_context(|| format!("listing {}", dir.display())),
-        };
-        for entry in entries {
-            let entry = entry.with_context(|| format!("listing {}", dir.display()))?;
+        for entry in state::read_dir_or_empty(&self.state.join(DIR))? {
             let name = entry.file_name();
-            if snapshot_ids.iter().any(|id| name == id.as_str()) {
-                continue;
-            }
-            let path = entry.path();
-            let removed = if entry.file_type().is_ok_and(|t| t.is_dir()) {
-                std::fs::remove_dir_all(&path)
-            } else {
-                std::fs::remove_file(&path)
-            };
-            match removed {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(e).with_context(|| format!("removing {}", path.display()));
-                }
-                _ => {}
+            if !snapshot_ids.iter().any(|id| name == id.as_str()) {
+                state::remove_entry(&entry.path())?;
             }
         }
         Ok(())
@@ -139,14 +120,7 @@ impl ScrollbackStore {
     /// behind in the snapshots' directories (see
     /// [`state::remove_stale_temp_files`]).
     pub fn remove_stale_temp_files(&self) -> Result<()> {
-        let dir = self.state.join(DIR);
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(e).with_context(|| format!("listing {}", dir.display())),
-        };
-        for entry in entries {
-            let entry = entry.with_context(|| format!("listing {}", dir.display()))?;
+        for entry in state::read_dir_or_empty(&self.state.join(DIR))? {
             if entry.file_type().is_ok_and(|t| t.is_dir()) {
                 state::remove_stale_temp_files(&entry.path(), state::is_temp_name)?;
             }

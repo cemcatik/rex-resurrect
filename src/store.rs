@@ -57,16 +57,8 @@ impl SnapshotStore {
 
     /// Every snapshot's identifier, newest first.
     pub fn list(&self) -> Result<Vec<String>> {
-        let entries = match std::fs::read_dir(&self.snapshots) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => {
-                return Err(e).with_context(|| format!("listing {}", self.snapshots.display()));
-            }
-        };
         let mut ids = Vec::new();
-        for entry in entries {
-            let entry = entry.with_context(|| format!("listing {}", self.snapshots.display()))?;
+        for entry in state::read_dir_or_empty(&self.snapshots)? {
             let name = entry.file_name();
             if let Some(id) = name.to_str().and_then(snapshot_id) {
                 ids.push(id.to_string());
