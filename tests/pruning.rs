@@ -70,6 +70,27 @@ fn a_save_that_fails_to_write_its_snapshot_removes_no_recorder_files() {
     assert!(recorder_file(&env, &gone_block).exists());
 }
 
+/// An empty server writes no snapshot, so it removes nothing either: a save
+/// that finds no sessions can't tell a server that lost them from one that
+/// never had them.
+#[test]
+fn a_save_from_an_empty_server_removes_nothing() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let (original, original_block) = session_with_one_block(&env, &server, "zz-proj");
+    env.write_recorder_file(&original_block, "echo zz-proj");
+    env.save(&server);
+    server.kill_session(&original);
+    env.restore(&server);
+    let restored = server.the_session_labelled("zz-proj");
+    let restored_block = server.block_ids(&restored).remove(0);
+    server.kill_session(&restored);
+
+    env.save(&server);
+    assert!(lineage_map_mentions(&env, &restored));
+    assert!(recorder_file(&env, &restored_block).exists());
+}
+
 /// Writes a stand-in `rex` that passes every call to the real one and, each
 /// time `session.list` has answered, writes `recorder` as a recorder would
 /// for a block that appeared just then. Returns the directory holding it.
