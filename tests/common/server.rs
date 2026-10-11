@@ -294,6 +294,71 @@ impl Server {
         self.block_method(session_id, block_id, "write", json!({ "data": data }));
     }
 
+    /// Types `command` at the block's prompt and presses Enter.
+    pub fn run(&self, session_id: &str, block_id: &str, command: &str) {
+        self.write(session_id, block_id, &format!("{command}\n"));
+    }
+
+    /// The name of the block's foreground process (its shell while idle).
+    pub fn foreground(&self, session_id: &str, block_id: &str) -> Option<String> {
+        let process = self.block_method(session_id, block_id, "process", json!({}));
+        process["foreground"]["name"].as_str().map(str::to_string)
+    }
+
+    /// Waits until the block's foreground process is called `name`.
+    pub fn wait_for_foreground(&self, session_id: &str, block_id: &str, name: &str) {
+        wait_for(&format!("{name} in the foreground of {block_id}"), || {
+            (self.foreground(session_id, block_id).as_deref() == Some(name)).then_some(())
+        });
+    }
+
+    /// The ID of the one live session labelled `label` (panics unless
+    /// there's exactly one).
+    pub fn the_session_labelled(&self, label: &str) -> String {
+        let ids = self.session_ids_labelled(label);
+        assert_eq!(
+            ids.len(),
+            1,
+            "exactly one session labelled {label}: {ids:?}"
+        );
+        ids.into_iter().next().unwrap()
+    }
+
+    /// Every block of a live session, window by window, in layout order.
+    pub fn block_ids(&self, session_id: &str) -> Vec<String> {
+        tiled_layouts(&self.view(session_id))
+            .iter()
+            .flat_map(Shape::leaves)
+            .collect()
+    }
+
+    /// The last line of the block's capture: its prompt line, once the shell
+    /// is idle.
+    pub fn prompt_line(&self, session_id: &str, block_id: &str) -> String {
+        last_line(&self.capture(session_id, block_id))
+    }
+
+    /// Waits until `command` sits typed at the block's prompt (the harness
+    /// prompt is `<dir> % `), and returns that line.
+    pub fn wait_for_typed(&self, session_id: &str, block_id: &str, command: &str) -> String {
+        let suffix = format!("% {command}");
+        let capture = self.wait_for_capture(
+            session_id,
+            block_id,
+            &format!("{command:?} typed at the prompt"),
+            |capture| last_line(capture).ends_with(&suffix),
+        );
+        last_line(&capture)
+    }
+
+    /// Waits until the block shows a prompt with nothing typed after it.
+    pub fn wait_for_empty_prompt(&self, session_id: &str, block_id: &str) -> String {
+        let capture = self.wait_for_capture(session_id, block_id, "an empty prompt", |capture| {
+            last_line(capture).ends_with(" %")
+        });
+        last_line(&capture)
+    }
+
     /// The block's working directory as its shell last reported it, decoded,
     /// or `None` while it hasn't reported one.
     pub fn pwd(&self, session_id: &str, block_id: &str) -> Option<String> {
@@ -441,10 +506,21 @@ pub fn decode_file_url(url: &str) -> String {
     String::from_utf8(out).expect("fixture paths are UTF-8")
 }
 
+fn last_line(capture: &str) -> String {
+    capture.trim_end().lines().last().unwrap_or("").to_string()
+}
+
 /// Polls `f` until it returns `Some`, panicking after [`WAIT`].
 pub fn wait_for<T>(what: &str, f: impl FnMut() -> Option<T>) -> T {
     wait_for_or_none(WAIT, f)
         .unwrap_or_else(|| panic!("timed out after {WAIT:?} waiting for {what}"))
+}
+
+/// Waits until `path` exists, e.g. a marker file a fixture command creates.
+pub fn wait_for_file(path: &Path) {
+    wait_for(&format!("{} to exist", path.display()), || {
+        path.exists().then_some(())
+    });
 }
 
 /// Polls `f` until it returns `Some` or `timeout` passes.

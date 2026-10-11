@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use super::resurrect::ResurrectCmd;
 use super::server::{Server, ServerBuilder};
 use super::tempdir::TempDir;
-use super::zsh::ZshConfig;
+use super::zsh::{self, ZshConfig};
 
 /// Variables copied from the test process into every child environment.
 /// Everything else is dropped: in particular `REX_BLOCK`, `REX_SESSION`,
@@ -80,6 +80,14 @@ impl TestEnv {
         TestEnvBuilder::default()
     }
 
+    /// A `TestEnv` whose fixture blocks load the zsh recorder plugin with a
+    /// plain `source`.
+    pub fn with_recorder() -> TestEnv {
+        TestEnv::builder()
+            .zshrc_line(format!("source {}", zsh::quote(&zsh::recorder_plugin())))
+            .build()
+    }
+
     /// The temp directory everything lives in (`/tmp/rxt.<pid>-<n>`).
     pub fn root(&self) -> &Path {
         self.root.path()
@@ -89,6 +97,16 @@ impl TestEnv {
     /// [`STATE_DIR_VAR`] to the binary and to every block shell).
     pub fn state_dir(&self) -> PathBuf {
         self.root().join("state")
+    }
+
+    /// Writes a block's recorder file the way any recorder would (the format
+    /// recorders share with rex-resurrect: `recorder/<block ID>` in the state
+    /// directory, holding the command and a newline). For playing a recorder
+    /// that records what the zsh one wouldn't.
+    pub fn write_recorder_file(&self, block_id: &str, command: &str) {
+        let dir = self.state_dir().join("recorder");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(block_id), format!("{command}\n")).unwrap();
     }
 
     /// The harness `ZDOTDIR` (see [`ZshConfig`]).
@@ -143,6 +161,32 @@ impl TestEnv {
         }
         let status: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         status["pid"].as_u64()
+    }
+
+    /// Runs an interactive zsh outside Rex, on the harness config and
+    /// environment (so no `REX_BLOCK`) plus `extra_env`, feeding it `input`
+    /// on stdin until it exits at the end of it.
+    pub fn zsh_outside_rex(&self, extra_env: &[(&str, &str)], input: &str) {
+        use std::io::Write;
+        let mut child = Command::new("zsh")
+            .arg("-i")
+            .env_clear()
+            .envs(self.child_env())
+            .env("TERM", "dumb")
+            .envs(extra_env.iter().copied())
+            .current_dir(self.root())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("running zsh");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        child.wait().unwrap();
     }
 
     /// Runs `rex-resurrect save` against `server` and asserts it succeeded.

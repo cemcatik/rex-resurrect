@@ -8,8 +8,10 @@ use crate::create;
 use crate::error::{Context, Error, Result};
 use crate::instance::RestoreLock;
 use crate::lineage::{Lineage, LineageMap};
+use crate::recorder::RecorderFiles;
 use crate::rex::Rex;
-use crate::snapshot::{SavedSession, Snapshot};
+use crate::rex::api::CreatedSession;
+use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, Snapshot};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 use crate::workdir;
@@ -174,6 +176,7 @@ fn restore_sessions(
         .map(|s| (lineages.lineage_of(&s.session_id), s.session_id.clone()))
         .collect();
     lineages.retain_live(|id| live_sessions.iter().any(|s| s.session_id == id));
+    let recorder = RecorderFiles::new(state);
 
     let mut report = RestoreReport {
         had_snapshot: true,
@@ -199,6 +202,12 @@ fn restore_sessions(
                 lineages.save().with_context(|| {
                     format!(
                         "recording the lineage of restored session {}",
+                        created.session_id
+                    )
+                })?;
+                carry_forward(&recorder, saved, &created).with_context(|| {
+                    format!(
+                        "carrying forward the last commands of restored session {}",
                         created.session_id
                     )
                 })?;
@@ -258,4 +267,60 @@ fn selected_sessions<'a>(
         )));
     }
     Ok(selected)
+}
+
+/// Seeds each new block's recorder file with the command restore typed at its
+/// prompt. Typed input never reaches the recorder (nothing ran), so without
+/// this the next save would find no last command. With it, the command
+/// carries forward through any number of restores until the block's shell
+/// records a new one.
+///
+/// `session.create` returns each window's block IDs in layout order
+/// (depth-first, `before` then `after`), the order `layout_blocks` walks the
+/// saved layout in.
+fn carry_forward(
+    recorder: &RecorderFiles,
+    saved: &SavedSession,
+    created: &CreatedSession,
+) -> Result<()> {
+    if created.initial_windows.len() != saved.windows.len() {
+        return Err(Error::new(format!(
+            "session.create returned {} windows for {} saved ones",
+            created.initial_windows.len(),
+            saved.windows.len()
+        )));
+    }
+    for (i, (window, created_window)) in saved
+        .windows
+        .iter()
+        .zip(&created.initial_windows)
+        .enumerate()
+    {
+        let blocks = layout_blocks(&window.layout);
+        if blocks.len() != created_window.block_ids.len() {
+            return Err(Error::new(format!(
+                "session.create returned {} block IDs for window {i}, which has {} saved blocks",
+                created_window.block_ids.len(),
+                blocks.len()
+            )));
+        }
+        for (block, block_id) in blocks.into_iter().zip(&created_window.block_ids) {
+            if let Some(command) = create::typed_command(block) {
+                recorder.record(block_id, command)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A layout's blocks in depth-first, `before`-then-`after` order.
+fn layout_blocks(layout: &SavedLayout) -> Vec<&SavedBlock> {
+    match layout {
+        SavedLayout::Block(block) => vec![block],
+        SavedLayout::Split(split) => {
+            let mut blocks = layout_blocks(&split.before);
+            blocks.extend(layout_blocks(&split.after));
+            blocks
+        }
+    }
 }

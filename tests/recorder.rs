@@ -1,0 +1,139 @@
+//! The zsh recorder: which commands become a block's last command.
+//!
+//! Recorded commands are observed the way a user sees them: save, kill,
+//! restore, and read the restored block's prompt.
+
+mod common;
+
+use std::path::Path;
+
+use common::server::wait_for_file;
+use common::*;
+
+fn has_entries(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())
+}
+
+/// Saves, kills the session labelled `label`, restores, and waits until each
+/// restored block (in layout order) shows its expected command typed.
+fn assert_restored_with_typed(env: &TestEnv, server: &Server, label: &str, expected: &[&str]) {
+    env.save(server);
+    server.kill_session(&server.the_session_labelled(label));
+    env.restore(server);
+    let restored = server.the_session_labelled(label);
+    let blocks = server.block_ids(&restored);
+    assert_eq!(blocks.len(), expected.len());
+    for (block, command) in blocks.iter().zip(expected) {
+        server.wait_for_typed(&restored, block, command);
+    }
+}
+
+#[test]
+fn a_shell_outside_rex_records_nothing() {
+    let env = TestEnv::with_recorder();
+    env.zsh_outside_rex(&[], "echo zz-outside\n");
+    assert!(
+        !has_entries(&env.state_dir()),
+        "nothing written without REX_BLOCK"
+    );
+
+    // The same shell inside a block (REX_BLOCK set) does record.
+    env.zsh_outside_rex(&[("REX_BLOCK", "block:zz-control")], "echo zz-inside\n");
+    assert!(has_entries(&env.state_dir()), "the control run recorded");
+}
+
+#[test]
+fn a_multi_line_command_leaves_the_previous_last_command_in_place() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let fixture = server.create_session("zz-multi", &[window(shell(&a))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    let first = format!("touch {}", a.join("first").display());
+    server.run(&fixture.id, block, &first);
+    wait_for_file(&a.join("first"));
+    // `&&` at the end of a line continues the command on the next one.
+    let second = a.join("second");
+    server.run(
+        &fixture.id,
+        block,
+        &format!("true &&\ntouch {}", second.display()),
+    );
+    wait_for_file(&second);
+
+    assert_restored_with_typed(&env, &server, "zz-multi", &[&first]);
+}
+
+#[test]
+fn a_command_run_in_a_nested_shell_does_not_replace_the_command_that_started_it() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let fixture = server.create_session("zz-nested", &[window(shell(&a))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    // The nested zsh loads the recorder too (same harness .zshrc).
+    server.run(&fixture.id, block, "zsh");
+    let inner = a.join("inner");
+    server.run(&fixture.id, block, &format!("touch {}", inner.display()));
+    wait_for_file(&inner);
+
+    assert_restored_with_typed(&env, &server, "zz-nested", &["zsh"]);
+}
+
+#[test]
+fn after_exec_zsh_the_outermost_shell_still_records() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let fixture = server.create_session("zz-exec", &[window(shell(&a))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    server.run(&fixture.id, block, "exec zsh");
+    let after = format!("touch {}", a.join("after").display());
+    server.run(&fixture.id, block, &after);
+    wait_for_file(&a.join("after"));
+
+    assert_restored_with_typed(&env, &server, "zz-exec", &[&after]);
+}
+
+/// What oh-my-zsh does with `plugins=(...)` (oh-my-zsh.sh: `is_plugin`, the
+/// fpath loop and `_omz_source`): for each plugin found as
+/// `$ZSH_CUSTOM/plugins/<name>/<name>.plugin.zsh`, add its directory to
+/// `fpath`, then source that file from inside a function with locals.
+const OMZ_LIKE_LOADER: &str = r#"ZSH_CUSTOM=${ZDOTDIR:h}/omz-custom
+plugins=(rex-resurrect)
+for plugin ($plugins); do
+  [[ -f $ZSH_CUSTOM/plugins/$plugin/$plugin.plugin.zsh ]] && fpath=($ZSH_CUSTOM/plugins/$plugin $fpath)
+done
+_omz_like_source() {
+  local context filepath=$1
+  local -A aliases_pre galiases_pre
+  [[ -f $ZSH_CUSTOM/$filepath ]] && source $ZSH_CUSTOM/$filepath
+}
+for plugin ($plugins); do
+  _omz_like_source plugins/$plugin/$plugin.plugin.zsh
+done
+unset plugin"#;
+
+#[test]
+fn the_recorder_loads_as_an_oh_my_zsh_custom_plugin() {
+    let env = TestEnv::builder().zshrc_line(OMZ_LIKE_LOADER).build();
+    let plugin_dir = env.root().join("omz-custom/plugins/rex-resurrect");
+    std::fs::create_dir_all(&plugin_dir).unwrap();
+    std::fs::copy(
+        common::zsh::recorder_plugin(),
+        plugin_dir.join("rex-resurrect.plugin.zsh"),
+    )
+    .unwrap();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let fixture = server.create_session("zz-omz", &[window(shell(&a))]);
+    server.wait_for_pwds(&fixture);
+    let command = format!("touch {}", a.join("omz").display());
+    server.run(&fixture.id, fixture.block_ids()[0], &command);
+    wait_for_file(&a.join("omz"));
+
+    assert_restored_with_typed(&env, &server, "zz-omz", &[&command]);
+}
