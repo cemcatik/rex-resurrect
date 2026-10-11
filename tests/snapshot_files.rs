@@ -6,8 +6,8 @@
 mod common;
 
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 
+use common::files::accessible_to_others;
 use common::*;
 
 const KEEP_VAR: &str = "REX_RESURRECT_KEEP";
@@ -33,31 +33,6 @@ fn sorted_labels(server: &Server) -> Vec<String> {
     let mut labels: Vec<String> = server.sessions().into_iter().map(|s| s.label).collect();
     labels.sort();
     labels
-}
-
-/// Every directory and file under `dir` (and `dir` itself) that its group or
-/// other users can access, with its mode. Symlinks are skipped: their own
-/// mode means nothing.
-fn accessible_to_others(dir: &Path) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(path) = pending.pop() {
-        let meta = std::fs::symlink_metadata(&path).unwrap();
-        if meta.file_type().is_symlink() {
-            continue;
-        }
-        let mode = meta.permissions().mode() & 0o777;
-        if mode & 0o077 != 0 {
-            found.push(format!("{} ({mode:o})", path.display()));
-        }
-        if meta.is_dir() {
-            for entry in std::fs::read_dir(&path).unwrap() {
-                pending.push(entry.unwrap().path());
-            }
-        }
-    }
-    found.sort();
-    found
 }
 
 #[test]

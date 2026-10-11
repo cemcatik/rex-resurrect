@@ -4,6 +4,7 @@
 
 mod common;
 
+use common::files::{accessible_to_others, disk_usage};
 use common::server::wait_for_file;
 use common::*;
 use serde_json::json;
@@ -218,6 +219,50 @@ fn replayed_output_wraps_at_the_width_of_the_restored_block() {
     // And it reflows when the block is resized later.
     server.resize(&restored, &block, 50, 24);
     rows_at(50);
+}
+
+#[test]
+fn scrollback_is_private_and_kept_only_as_long_as_its_snapshot() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let fixture = server.create_session("zz-kept", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    // Enough scrollback to dwarf everything else rex-resurrect keeps.
+    server.run(&fixture.id, block, "seq 1 20000");
+    server.wait_for_capture(&fixture.id, block, "the whole sequence", |c| {
+        c.contains("\n20000\n")
+    });
+    let save = || {
+        env.resurrect(&server)
+            .arg("save")
+            .env("REX_RESURRECT_KEEP", "2")
+            .run()
+            .assert_success();
+    };
+
+    save();
+    let one_snapshot = disk_usage(&env.state_dir());
+    for _ in 0..4 {
+        save();
+    }
+    let kept = disk_usage(&env.state_dir());
+
+    assert!(
+        kept < one_snapshot * 5 / 2,
+        "two snapshots' worth kept ({kept} bytes), not five ({one_snapshot} bytes each)"
+    );
+    assert_eq!(accessible_to_others(&env.state_dir()), Vec::<String>::new());
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+    let restored = server.the_session_labelled("zz-kept");
+    let block = server.block_ids(&restored).remove(0);
+    server.wait_for_empty_prompt(&restored, &block);
+    let capture = server.capture(&restored, &block);
+    assert!(
+        capture.contains("\n20000\n"),
+        "the latest snapshot's scrollback is still there"
+    );
 }
 
 #[test]
