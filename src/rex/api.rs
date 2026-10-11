@@ -56,9 +56,39 @@ pub struct SessionSummary {
 pub struct SessionView {
     pub session_id: String,
     pub label: String,
-    /// In window (tab) order. Absent for a session with no windows.
+    /// Absent for a session with no windows.
+    #[serde(default)]
+    pub active_window_id: Option<String>,
+    /// In window (tab) order. Absent for a session with no windows (Rex
+    /// keeps a session live after its last shell exits).
     #[serde(default)]
     pub windows: Vec<WindowView>,
+}
+
+impl SessionView {
+    /// Cross-checks the keys Rex omits instead of sending them empty, so a
+    /// renamed key can't pass for an empty value (and the session for one
+    /// with nothing to save):
+    /// - `windows` is absent only when there's no `active_window_id` either;
+    /// - a tiled layer's `layout` is null only when its `blocks` are empty
+    ///   (every block floated away).
+    pub fn check_consistency(&self) -> Result<(), String> {
+        if self.windows.is_empty() && self.active_window_id.is_some() {
+            return Err("it names an active window but has no `windows`".into());
+        }
+        for window in &self.windows {
+            if let Some(tiled) = window.tiled_layer()
+                && tiled.layout.is_none()
+                && !tiled.blocks.is_empty()
+            {
+                return Err(format!(
+                    "window {}: its tiled layer has blocks but no `layout`",
+                    window.window_id
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,6 +218,38 @@ pub struct TerminalProcess {
     pub home: Option<PathBuf>,
 }
 
+impl TerminalProcess {
+    /// The process in the terminal's foreground, unless it's the block's
+    /// own shell: a program the shell runs, or a shell nested in it.
+    ///
+    /// The block's shell is its outermost process other than `login`, the
+    /// wrapper Rex starts login shells through. `ancestors` reach up to the
+    /// block's first process (`login`, or the shell itself when Rex starts it
+    /// directly), so a foreground process with an ancestor other than `login`
+    /// isn't the block's shell.
+    pub fn foreground_program(&self) -> Option<&ProcessInfo> {
+        self.foreground
+            .as_ref()
+            .filter(|_| self.ancestors.iter().any(|ancestor| ancestor.name != LOGIN))
+    }
+}
+
+/// The process Rex starts a block's login shell through.
+const LOGIN: &str = "login";
+
+#[derive(Debug, Deserialize)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub name: String,
+    #[serde(default)]
+    pub path: Option<PathBuf>,
+    #[serde(default)]
+    pub argv0: Option<String>,
+    /// Physical path (`/private/tmp/...`). Absent for root processes.
+    #[serde(default)]
+    pub cwd: Option<PathBuf>,
+}
+
 /// Arguments of the terminal `format` method, which renders the block's
 /// scrollback and screen (not just the screen, whatever its description
 /// says). Only `format: "vt"` is used: text plus SGR styles, no cursor
@@ -209,19 +271,6 @@ pub struct FormatArgs {
 #[derive(Debug, Deserialize)]
 pub struct TerminalFormat {
     pub content: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ProcessInfo {
-    pub pid: u32,
-    pub name: String,
-    #[serde(default)]
-    pub path: Option<PathBuf>,
-    #[serde(default)]
-    pub argv0: Option<String>,
-    /// Physical path (`/private/tmp/...`). Absent for root processes.
-    #[serde(default)]
-    pub cwd: Option<PathBuf>,
 }
 
 // ---- session.create --------------------------------------------------------

@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use crate::error::{Error, Result};
+use crate::foreground;
 use crate::label;
 use crate::lineage::Lineage;
 use crate::recorder::RecorderFiles;
@@ -133,8 +134,9 @@ fn saved_layout(
 }
 
 /// A local shell block in its working directory, with its recorder file as
-/// the source of truth for its last command, and its scrollback. A
-/// non-terminal block has no
+/// the source of truth for its last command. A block without one (its shell
+/// started before the recorder was installed) falls back to the program in
+/// its foreground. Its scrollback is saved too. A non-terminal block has no
 /// working directory, and a remote block's is on another host, so either is
 /// saved as a plain shell in the home directory.
 fn saved_block(
@@ -146,12 +148,15 @@ fn saved_block(
     if !local.is_local_shell(block) {
         return Ok(local.plain_shell());
     }
+    let (session_id, block_id) = (&session.session_id, &block.block_id);
+    let last_command = match local.recorder.last_command(block_id)? {
+        Some(recorded) => Some(recorded),
+        None => foreground::foreground_command(rex, session_id, block_id)?,
+    };
     Ok(SavedBlock {
         label: label::user_set_block_label(block).map(str::to_owned),
-        working_directory: workdir::working_directory(rex, &session.session_id, &block.block_id)?,
-        last_command: local.recorder.last_command(&block.block_id)?,
-        scrollback: local
-            .scrollback
-            .save(rex, &session.session_id, &block.block_id)?,
+        working_directory: workdir::working_directory(rex, session_id, block_id)?,
+        last_command,
+        scrollback: local.scrollback.save(rex, session_id, block_id)?,
     })
 }

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::{Error, Result};
 use crate::lineage::Lineage;
 use crate::rex::api::Direction;
 use crate::timestamp::Timestamp;
@@ -30,6 +31,44 @@ impl Snapshot {
             format: FORMAT,
             taken_at: taken_at.rfc3339(),
             sessions,
+        }
+    }
+
+    /// Checks what restore relies on: every session has at least one window
+    /// and every split ratio is in (0, 1). That every layout node is exactly
+    /// one of a block or a split holds by construction ([`SavedLayout`]).
+    pub fn validate(&self) -> Result<()> {
+        for session in &self.sessions {
+            if session.windows.is_empty() {
+                return Err(Error::new(format!(
+                    "session {:?} has no windows",
+                    session.label
+                )));
+            }
+            for (i, window) in session.windows.iter().enumerate() {
+                validate_layout(&window.layout).map_err(|e| {
+                    Error::new(format!(
+                        "session {:?}, window {}: {e}",
+                        session.label,
+                        i + 1
+                    ))
+                })?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_layout(layout: &SavedLayout) -> Result<(), String> {
+    match layout {
+        SavedLayout::Block(_) => Ok(()),
+        SavedLayout::Split(split) => {
+            // Written so that NaN fails too.
+            if !(split.ratio > 0.0 && split.ratio < 1.0) {
+                return Err(format!("split ratio {} isn't between 0 and 1", split.ratio));
+            }
+            validate_layout(&split.before)?;
+            validate_layout(&split.after)
         }
     }
 }
