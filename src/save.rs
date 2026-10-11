@@ -44,6 +44,7 @@ pub fn run(options: &SaveOptions) -> Result<ExitCode> {
     if let Some(report) = &restored_first {
         println!("restored first: this server instance hadn't been restored into yet");
         let _ = report.print(&mut std::io::stdout().lock());
+        report.log_failures(&state, "save (restoring first)");
     }
     match save(&rex, &state, retention, options)? {
         Saved::Snapshot { path, sessions } => {

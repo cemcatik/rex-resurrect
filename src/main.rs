@@ -10,6 +10,7 @@ mod instance;
 mod label;
 mod lineage;
 mod list;
+mod log;
 mod recorder;
 mod restore;
 mod retention;
@@ -35,8 +36,8 @@ fn main() -> ExitCode {
         }
     };
     let result = match command {
-        Command::Save(options) => save::run(&options),
-        Command::Restore(options) => restore::run(&options),
+        Command::Save(options) => logging_failure("save", save::run(&options)),
+        Command::Restore(options) => logging_failure("restore", restore::run(&options)),
         Command::List(options) => list::run(&options),
         Command::Autosave(command) => autosave::run(&command),
         Command::Help => {
@@ -52,4 +53,14 @@ fn main() -> ExitCode {
         eprintln!("rex-resurrect: error: {e}");
         ExitCode::FAILURE
     })
+}
+
+/// Appends `result`'s error, if any, to the log in the state directory.
+fn logging_failure(command: &str, result: error::Result<ExitCode>) -> error::Result<ExitCode> {
+    if let Err(e) = &result
+        && let Ok(state) = state::StateDir::from_env()
+    {
+        log::log_failure(&state, command, e);
+    }
+    result
 }
