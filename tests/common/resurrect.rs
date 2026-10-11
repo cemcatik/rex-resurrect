@@ -82,29 +82,38 @@ impl ResurrectCmd {
             .expect("running rex-resurrect");
         Running {
             command: format!("rex-resurrect {:?}", self.args),
-            child,
+            child: Some(child),
         }
     }
 }
 
 /// A `rex-resurrect` run that may still be going. [`Running::wait`] for it.
+/// Dropped without waiting (its test panicked), it kills the run, so the run
+/// can't outlive the test's temp dir and recreate files in it.
 #[must_use]
 pub struct Running {
     command: String,
-    child: Child,
+    child: Option<Child>,
 }
 
 impl Running {
-    pub fn wait(self) -> RunOutput {
-        let out = self
-            .child
-            .wait_with_output()
-            .expect("waiting for rex-resurrect");
+    pub fn wait(mut self) -> RunOutput {
+        let child = self.child.take().expect("a run is waited for once");
+        let out = child.wait_with_output().expect("waiting for rex-resurrect");
         RunOutput {
-            command: self.command,
+            command: std::mem::take(&mut self.command),
             status: out.status,
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        }
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        if let Some(child) = &mut self.child {
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 }
