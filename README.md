@@ -143,10 +143,11 @@ ran in, and `restore.lock` makes restores take turns. `recorder/` holds one file
 its last command. The recorder finds the state directory the same way, so set
 `REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
 
-Snapshots can contain commands, and commands can contain secrets, so the state directory is
-readable by you only (`save` and `restore` make it `0700` if it isn't) and every file in it is written with
-mode `0600`. Files are written atomically (a temporary file, then a rename), so a crash never
-leaves a partial snapshot behind.
+Snapshots and recorder files hold commands, and commands can hold secrets, so the state
+directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
+rex-resurrect writes its own files with mode `0600`, and the recorder keeps its files in a
+`0700` directory. Every file is written atomically (a temporary file, then a rename), so a
+crash never leaves a partial snapshot or record behind.
 
 ## Development
 
