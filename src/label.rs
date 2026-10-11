@@ -17,10 +17,16 @@ pub fn user_set_window_label(window: &WindowView) -> Option<&str> {
     (!default).then_some(window.label.as_str())
 }
 
-/// The block's label if the user set it; `None` for the default label a new
-/// shell block gets, `shell`.
+/// The block's label if the user set it; `None` for either default label:
+/// `shell`, which a new shell block gets, or `Block ` plus the last 8 hex
+/// characters of its ID, which Rex gives a block whose label was cleared.
 pub fn user_set_block_label(block: &BlockView) -> Option<&str> {
-    (block.label != "shell").then_some(block.label.as_str())
+    let default = block.label == "shell"
+        || block
+            .label
+            .strip_prefix("Block ")
+            .is_some_and(|suffix| suffix == id_suffix(&block.block_id));
+    (!default).then_some(block.label.as_str())
 }
 
 /// The last 8 characters of a Rex ID (`window:<uuid>`, `block:<uuid>`): hex,
