@@ -109,9 +109,10 @@ fn worth_saving(session: &SavedSession, home: &Path) -> bool {
 /// have. Its label doesn't count: Rex's generated session labels can't be
 /// told apart from user-set ones.
 ///
-/// Judged from the session as saved, so a last command counts however save
-/// found it, including one restore carried forward. "No last command" means
-/// none that restore would type.
+/// Judged from the session as saved: a last command counts however save
+/// found it, including one restore carried forward, and "no last command"
+/// means none that restore would type. A block saved as a plain shell in
+/// home (a remote block, say) is judged as that plain shell.
 fn is_untouched(session: &SavedSession, home: &Path) -> bool {
     let [window] = session.windows.as_slice() else {
         return false;
