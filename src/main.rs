@@ -12,6 +12,7 @@ mod lineage;
 mod list;
 mod recorder;
 mod restore;
+mod retention;
 mod rex;
 mod save;
 mod snapshot;
