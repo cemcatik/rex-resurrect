@@ -16,7 +16,13 @@ fn restore_recreates_windows_splits_ratios_and_working_directories() {
         ["a", "with space", "c", "d", "e", "f", "moved"].map(|name| env.mkdir(name));
 
     // Window 1: a 70/30 side-by-side split whose left half is stacked 35/65.
-    let editor = || hsplit(0.7, vsplit(0.35, shell(&a), shell(&spaced)), shell(&c));
+    let editor = || {
+        hsplit(
+            0.7,
+            vsplit(0.35, shell(&a).labeled("notes"), shell(&spaced)),
+            shell(&c),
+        )
+    };
     // Window 2: a different tree, so window order shows in the comparison.
     let tools = |last: &Path| vsplit(0.25, shell(&d), hsplit(0.6, shell(&e), shell(last)));
     let fixture = server.create_session(
@@ -61,6 +67,14 @@ fn restore_recreates_windows_splits_ratios_and_working_directories() {
         labels[1].label,
         default_window_label(&fixture.windows[1].id),
         "not the old default label"
+    );
+    assert_eq!(
+        labels
+            .iter()
+            .map(|w| w.block_labels.clone())
+            .collect::<Vec<_>>(),
+        vec![["notes", "shell", "shell"], ["shell", "shell", "shell"]],
+        "the labeled block keeps its label, the others get Rex's default"
     );
 }
 

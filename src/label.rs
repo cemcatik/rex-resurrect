@@ -5,7 +5,7 @@
 //! a fresh one on restore, instead of a stale `Window 1a2b3c4d` that looks
 //! deliberate.
 
-use crate::rex::api::WindowView;
+use crate::rex::api::{BlockView, WindowView};
 
 /// The window's label if the user set it; `None` for its default label,
 /// `Window ` plus the last 8 hex characters of its ID.
@@ -15,6 +15,12 @@ pub fn user_set_window_label(window: &WindowView) -> Option<&str> {
         .strip_prefix("Window ")
         .is_some_and(|suffix| suffix == id_suffix(&window.window_id));
     (!default).then_some(window.label.as_str())
+}
+
+/// The block's label if the user set it; `None` for the default label a new
+/// shell block gets, `shell`.
+pub fn user_set_block_label(block: &BlockView) -> Option<&str> {
+    (block.label != "shell").then_some(block.label.as_str())
 }
 
 /// The last 8 characters of a Rex ID (`window:<uuid>`, `block:<uuid>`): hex,

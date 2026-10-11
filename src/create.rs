@@ -36,7 +36,7 @@ fn create_layout(layout: &SavedLayout) -> CreateLayout {
 fn create_block(block: &SavedBlock) -> CreateBlock {
     CreateBlock {
         flavor: SHELL_FLAVOR.to_string(),
-        label: None,
+        label: block.label.clone(),
         options: TerminalOptions {
             cwd: Some(block.working_directory.clone()),
             initial_input: None,

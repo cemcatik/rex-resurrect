@@ -70,6 +70,7 @@ fn saved_layout(
 
 fn saved_block(rex: &Rex, session: &SessionView, block: &BlockView) -> Result<SavedBlock> {
     Ok(SavedBlock {
+        label: label::user_set_block_label(block).map(str::to_owned),
         working_directory: workdir::working_directory(rex, &session.session_id, &block.block_id)?,
     })
 }
