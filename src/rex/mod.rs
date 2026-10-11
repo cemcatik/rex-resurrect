@@ -14,6 +14,8 @@ pub mod api;
 use std::ffi::OsString;
 use std::fmt;
 use std::io::Write;
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use serde::Serialize;
@@ -24,6 +26,28 @@ use api::{
     CreateSession, CreatedSession, FormatArgs, ServerStatus, SessionList, SessionSummary,
     SessionView, TerminalFormat, TerminalProcess, TerminalPwd,
 };
+
+/// The variable naming the Rex server to talk to. Rex sets it in every
+/// block's shell.
+pub const SERVER_VAR: &str = "REX_SERVER";
+
+/// The endpoint of the Rex app's own server: rex's default endpoint when
+/// neither `REX_SERVER` nor `XDG_RUNTIME_DIR` is set, which is how the app
+/// starts its server. (With `XDG_RUNTIME_DIR` set, rex's default is
+/// `$XDG_RUNTIME_DIR/rex/server.sock` instead, which isn't the app's.)
+/// Percent-encoded, as Rex writes `REX_SERVER`.
+pub fn app_server_endpoint(home: &Path) -> String {
+    let socket = home.join("Library/Application Support/rex/server.sock");
+    let mut endpoint = String::from("unix://");
+    for &byte in socket.as_os_str().as_bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
+            endpoint.push(char::from(byte));
+        } else {
+            endpoint.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    endpoint
+}
 
 /// A handle on one Rex server, reached through the `rex` CLI on `PATH`.
 #[derive(Debug, Clone)]
@@ -90,7 +114,7 @@ impl Rex {
     pub fn from_env() -> Rex {
         Rex {
             program: "rex".into(),
-            server: std::env::var_os("REX_SERVER").filter(|s| !s.is_empty()),
+            server: std::env::var_os(SERVER_VAR).filter(|s| !s.is_empty()),
         }
     }
 

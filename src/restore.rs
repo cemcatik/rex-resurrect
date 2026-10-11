@@ -8,6 +8,7 @@ use crate::create;
 use crate::error::{Context, Error, Result};
 use crate::instance::RestoreLock;
 use crate::lineage::{Lineage, LineageMap};
+use crate::log;
 use crate::recorder::RecorderFiles;
 use crate::rex::Rex;
 use crate::rex::api::CreatedSession;
@@ -72,6 +73,15 @@ impl RestoreReport {
         self.count(|o| matches!(o, Outcome::Failed { .. }))
     }
 
+    /// Appends each session that failed to the log, as a failure of `command`.
+    pub fn log_failures(&self, state: &StateDir, command: &str) {
+        for outcome in &self.outcomes {
+            if let Outcome::Failed { label, error } = outcome {
+                log::log_failure(state, command, &format!("session {label:?}: {error}"));
+            }
+        }
+    }
+
     fn count(&self, pred: impl Fn(&Outcome) -> bool) -> usize {
         self.outcomes.iter().filter(|o| pred(o)).count()
     }
@@ -116,6 +126,7 @@ pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
     let lock = RestoreLock::acquire(&state)?;
     let report = restore(&Rex::from_env(), &state, &lock, options)?;
     let _ = report.print(&mut std::io::stdout().lock());
+    report.log_failures(&state, "restore");
     Ok(if report.failed() > 0 {
         ExitCode::FAILURE
     } else {
