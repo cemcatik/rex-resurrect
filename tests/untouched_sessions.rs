@@ -30,15 +30,28 @@ fn sorted_labels(server: &Server) -> Vec<String> {
     labels
 }
 
+fn kill_every_session(server: &Server) {
+    for session in server.sessions() {
+        server.kill_session(&session.id);
+    }
+}
+
 /// Saves, kills every live session, restores, and returns the labels of the
 /// sessions that came back: the saved ones.
 fn labels_saved(env: &TestEnv, server: &Server) -> Vec<String> {
     env.save(server);
-    for session in server.sessions() {
-        server.kill_session(&session.id);
-    }
+    kill_every_session(server);
     env.restore(server);
     sorted_labels(server)
+}
+
+/// What `rex-resurrect list` prints: one line per snapshot.
+fn listed(env: &TestEnv, server: &Server) -> String {
+    env.resurrect(server)
+        .arg("list")
+        .run()
+        .assert_success()
+        .stdout
 }
 
 #[test]
@@ -54,10 +67,11 @@ fn a_session_with_one_shell_in_home_default_labels_and_no_last_command_isnt_save
     assert_eq!(labels_saved(&env, &server), ["zz-touched"]);
 }
 
-/// Each session differs from an untouched one in one way only.
+/// A second block or window, a user-set window or block label, a working
+/// directory other than home (even one below it), or a last command: each
+/// session here differs from an untouched one in one of these ways only.
 #[test]
-fn a_second_block_or_window_a_user_set_label_another_directory_or_a_last_command_makes_a_session_touched()
- {
+fn any_one_change_from_untouched_gets_a_session_saved() {
     let env = env_with_own_home();
     let server = env.start_server();
     let projects = env.home().join("projects");
@@ -96,6 +110,45 @@ fn a_second_block_or_window_a_user_set_label_another_directory_or_a_last_command
     );
 }
 
+/// Rex's generated session labels (`amber-ridge`) can't be told apart from
+/// user-set ones, so a session's label never makes it touched.
+#[test]
+fn a_session_that_was_only_renamed_isnt_saved() {
+    let env = env_with_own_home();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let renamed = server.create_session("zz-created", &[window(shell_in_home())]);
+    let touched = server.create_session("zz-touched", &[window(shell(&a))]);
+    server.rename_session(&renamed.id, "zz-renamed");
+    server.wait_for_pwds(&renamed);
+    server.wait_for_pwds(&touched);
+
+    assert_eq!(labels_saved(&env, &server), ["zz-touched"]);
+}
+
+/// Clearing a label gives back a default one: `Window <8 hex>` for a window,
+/// and `Block <8 hex>` (not `shell`) for a block.
+#[test]
+fn a_session_whose_window_and_block_labels_were_cleared_isnt_saved() {
+    let env = env_with_own_home();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let cleared = server.create_session(
+        "zz-cleared",
+        &[window(shell_in_home().labeled("server")).labeled("notes")],
+    );
+    let touched = server.create_session("zz-touched", &[window(shell(&a))]);
+    server.call(
+        "session.set_window_label",
+        &json!({ "session_id": cleared.id, "window_id": cleared.windows[0].id, "label": "" }),
+    );
+    server.set_block_label(&cleared.id, cleared.block_ids()[0], "");
+    server.wait_for_pwds(&cleared);
+    server.wait_for_pwds(&touched);
+
+    assert_eq!(labels_saved(&env, &server), ["zz-touched"]);
+}
+
 /// Without an OSC 7 emitter (zsh without oh-my-zsh, say) a shell never
 /// reports its working directory, and save takes its foreground process's
 /// instead: a physical path (`/private/tmp/...`), while `HOME` here is
@@ -116,4 +169,69 @@ fn a_shell_in_home_that_never_reports_its_working_directory_is_untouched_too() {
     }
 
     assert_eq!(labels_saved(&env, &server), ["zz-touched"]);
+}
+
+/// A server whose only sessions are untouched is an empty server: like one
+/// with no sessions at all, it never replaces the latest snapshot.
+#[test]
+fn save_on_a_server_holding_only_untouched_sessions_writes_nothing() {
+    let env = env_with_own_home();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    let kept = server.create_session("zz-kept", &[window(shell(&a))]);
+    server.wait_for_pwds(&kept);
+    env.save(&server);
+    server.kill_session(&kept.id);
+    let untouched = server.create_session("zz-untouched", &[window(shell_in_home())]);
+    let renamed = server.create_session("zz-created", &[window(shell_in_home())]);
+    server.rename_session(&renamed.id, "zz-renamed");
+    server.wait_for_pwds(&untouched);
+    server.wait_for_pwds(&renamed);
+    let snapshots = listed(&env, &server);
+
+    env.save(&server);
+
+    assert_eq!(listed(&env, &server), snapshots, "no new snapshot");
+    kill_every_session(&server);
+    env.restore(&server);
+    assert_eq!(
+        sorted_labels(&server),
+        ["zz-kept"],
+        "the earlier snapshot is still the latest"
+    );
+}
+
+/// Restore carries a block's last command forward, so a restored session
+/// whose only content is that command doesn't turn untouched just because
+/// nothing has run in it since.
+#[test]
+fn a_session_whose_only_content_is_a_last_command_stays_saved_through_a_restore() {
+    let env = env_with_own_home();
+    {
+        let first = env.start_server();
+        let session = first.create_session("zz-last-command", &[window(shell_in_home())]);
+        first.wait_for_pwds(&session);
+        env.write_recorder_file(session.block_ids()[0], "make test");
+        env.save(&first);
+    } // The server stops, as in a restart.
+
+    {
+        let second = env.start_server();
+        env.restore(&second);
+        let restored = second.the_session_labelled("zz-last-command");
+        let block = &second.block_ids(&restored)[0];
+        second.wait_for_typed(&restored, block, "make test");
+        second.wait_for_pwd(&restored, block);
+        // Only in the second snapshot: shows that the second save wrote one.
+        let a = env.mkdir("a");
+        let marker = second.create_session("zz-marker", &[window(shell(&a))]);
+        second.wait_for_pwds(&marker);
+        env.save(&second);
+    }
+
+    let third = env.start_server();
+    env.restore(&third);
+    assert_eq!(sorted_labels(&third), ["zz-last-command", "zz-marker"]);
+    let restored = third.the_session_labelled("zz-last-command");
+    third.wait_for_typed(&restored, &third.block_ids(&restored)[0], "make test");
 }
