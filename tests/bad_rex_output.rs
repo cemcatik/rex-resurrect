@@ -31,6 +31,30 @@ fn save_with_view(env: &TestEnv, server: &Server, view: &Value) -> RunOutput {
         .run()
 }
 
+/// Runs `save` with every block's terminal `process` method answered by
+/// `process` instead of the server.
+fn save_with_process(env: &TestEnv, server: &Server, process: &Value) -> RunOutput {
+    let stub = RexStub::new(env).answer_when("block.method", r#""method":"process""#, process);
+    env.resurrect(server)
+        .path_prepend(stub.dir())
+        .arg("save")
+        .run()
+}
+
+/// A real block's terminal `process` answer with its `field` renamed to `to`.
+fn process_with_field_moved(
+    server: &Server,
+    fixture: &FixtureSession,
+    field: &str,
+    to: &str,
+) -> Value {
+    let block = fixture.block_ids()[0];
+    let mut process = server.block_method(&fixture.id, block, "process", json!({}));
+    let value = process.as_object_mut().unwrap().remove(field).unwrap();
+    process[to] = value;
+    process
+}
+
 /// The latest snapshot is still the good one: after killing the fixture,
 /// restore brings it back exactly as it was created.
 fn assert_latest_is_unchanged(
@@ -120,6 +144,36 @@ fn a_tiled_layer_whose_layout_moved_fails_save() {
 
     let out = save_with_view(&env, &server, &view).assert_failure();
     assert!(out.stderr.contains("layout"), "{out}");
+
+    assert_latest_is_unchanged(&env, &server, &fixture, &layout);
+}
+
+/// Rex always reports a block's foreground process, so a renamed
+/// `foreground` must not pass for a block with nothing in its foreground:
+/// that would quietly lose its fallback last command, its working directory
+/// before its shell reports one, and the no-scrollback check.
+#[test]
+fn a_process_answer_whose_foreground_moved_fails_save() {
+    let env = TestEnv::new();
+    let (server, fixture, layout) = server_with_a_saved_split(&env);
+    let process = process_with_field_moved(&server, &fixture, "foreground", "fg");
+
+    let out = save_with_process(&env, &server, &process).assert_failure();
+    assert!(out.stderr.contains("foreground"), "{out}");
+
+    assert_latest_is_unchanged(&env, &server, &fixture, &layout);
+}
+
+/// Rex always reports the user's home directory, so a renamed `home` must
+/// not pass for a block with no directory to fall back on.
+#[test]
+fn a_process_answer_whose_home_moved_fails_save() {
+    let env = TestEnv::new();
+    let (server, fixture, layout) = server_with_a_saved_split(&env);
+    let process = process_with_field_moved(&server, &fixture, "home", "home_dir");
+
+    let out = save_with_process(&env, &server, &process).assert_failure();
+    assert!(out.stderr.contains("home"), "{out}");
 
     assert_latest_is_unchanged(&env, &server, &fixture, &layout);
 }

@@ -200,19 +200,21 @@ pub struct TerminalPwd {
     pub pwd: Option<String>,
 }
 
-/// The terminal `process` method.
+/// The terminal `process` method. Rex always reports `foreground` and
+/// `home`, so they're required: without them a save would quietly lose last
+/// commands and working directories.
 #[derive(Debug, Deserialize)]
 pub struct TerminalProcess {
     /// The process in the terminal's foreground: the block's shell while it's
     /// idle, otherwise the program it's running.
-    #[serde(default)]
-    pub foreground: Option<ProcessInfo>,
+    pub foreground: ProcessInfo,
     /// The foreground process's ancestors, nearest first, ending with `login`.
+    /// Rex leaves it out when the foreground process is the block's first
+    /// (a command it started without `login`).
     #[serde(default)]
     pub ancestors: Vec<ProcessInfo>,
     /// The user's home directory.
-    #[serde(default)]
-    pub home: Option<PathBuf>,
+    pub home: PathBuf,
 }
 
 impl TerminalProcess {
@@ -225,9 +227,10 @@ impl TerminalProcess {
     /// directly), so a foreground process with an ancestor other than `login`
     /// isn't the block's shell.
     pub fn foreground_program(&self) -> Option<&ProcessInfo> {
-        self.foreground
-            .as_ref()
-            .filter(|_| self.ancestors.iter().any(|ancestor| ancestor.name != LOGIN))
+        self.ancestors
+            .iter()
+            .any(|ancestor| ancestor.name != LOGIN)
+            .then_some(&self.foreground)
     }
 }
 

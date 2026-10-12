@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::rex::Rex;
 use crate::rex::api::TerminalProcess;
 
@@ -19,14 +19,11 @@ pub fn working_directory(
     process: &TerminalProcess,
 ) -> Result<PathBuf> {
     let pwd = rex.terminal_pwd(session_id, block_id)?;
-    if let Some(path) = pwd.pwd.as_deref().and_then(path_from_file_url) {
-        return Ok(path);
-    }
-    process_directory(process).ok_or_else(|| {
-        Error::new(format!(
-            "block {block_id}: neither `pwd` nor `process` reports a working directory"
-        ))
-    })
+    Ok(pwd
+        .pwd
+        .as_deref()
+        .and_then(path_from_file_url)
+        .unwrap_or_else(|| process_directory(process)))
 }
 
 /// The path in a `file://<host>/<path>` URL, percent-decoded. The host may be
@@ -59,10 +56,10 @@ fn percent_decode(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// The foreground process's directory (a physical path), else home.
-fn process_directory(process: &TerminalProcess) -> Option<PathBuf> {
+fn process_directory(process: &TerminalProcess) -> PathBuf {
     process
         .foreground
-        .as_ref()
-        .and_then(|fg| fg.cwd.clone())
-        .or_else(|| process.home.clone())
+        .cwd
+        .clone()
+        .unwrap_or_else(|| process.home.clone())
 }
