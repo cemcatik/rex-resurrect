@@ -79,7 +79,7 @@ fn create_block(block: &SavedBlock, replay: &Replay) -> CreateBlock {
 /// it's a single line without control characters. Rex writes `initial_input`
 /// to the terminal as if typed, so a line break would act as Enter and run
 /// what came before it (other control characters can be editor keys too).
-/// Recorders already skip such commands; this check doesn't trust them, or
+/// Recorders already ignore such commands; this check doesn't trust them, or
 /// the snapshot.
 pub fn typed_command(block: &SavedBlock) -> Option<&str> {
     block

@@ -60,8 +60,8 @@ New shells pick it up. The recorder:
   `exec zsh` the shell keeps recording;
 - records a command as it starts, so a program still running at save time (`nvim`, a dev
   server, `claude`) counts too;
-- skips multi-line commands, keeping the previous one;
-- skips trivial commands on its ignore list (below), keeping the previous one, so the restored
+- ignores multi-line commands, keeping the previous one;
+- ignores trivial commands on its ignore list (below), keeping the previous one, so the restored
   prompt shows your last meaningful command;
 - tracks the last command itself rather than reading your history, so `SHARE_HISTORY` and
   per-directory history don't confuse it.
@@ -133,7 +133,7 @@ rex-resurrect list      # list the snapshots, newest first
   first.
 
 Whatever the snapshot, restore skips a saved session that's still live, even if it has changed
-since, so restoring an older snapshot never brings back an old version of a session you still
+since, so restoring an older snapshot never brings back an older copy of a session you still
 have. Kill the live one first if that's what you want.
 
 A block that can't come back as it was still comes back as a shell, so the layout around it
