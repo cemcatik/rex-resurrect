@@ -186,11 +186,15 @@ your latest snapshot without the other sessions. Restoring a whole older snapsho
 Only one restore runs at a time, and a `save` that starts during a restore waits for it to
 finish.
 
-A restore in which every session it tried to create failed (a server that refuses them, say)
-restored nothing, so it doesn't count either, whether it was `restore`, auto-restore or the
-restore a `save` runs first. Such a `save` saves nothing: it leaves `latest.json` alone, logs
-why and exits non-zero, and the next save restores first again. If only some sessions fail, the
-save goes ahead and still exits non-zero.
+A `restore` or auto-restore in which every session it tried to create failed (a server that
+refuses them, say) restored nothing, so it doesn't count either, and the next save restores
+first. If every session fails in the restore a `save` runs first too, that save saves nothing:
+it leaves `latest.json` alone, exits non-zero, and logs which snapshot failed to restore. It
+does count the server as restored, though, so the next save goes ahead and saves what's live
+instead of failing the same way forever. To try that snapshot again, run the command the
+message gives, `rex-resurrect restore --snapshot <id>`, before the next save (an autosave
+within 15 minutes) replaces `latest.json`; the snapshot itself stays in `list` until retention
+removes it. If only some sessions fail, the save goes ahead and still exits non-zero.
 
 rex-resurrect never starts a Rex server. If Rex isn't running, `save` and `restore` fail and
 say so.

@@ -46,10 +46,14 @@ pub enum Saved {
 /// yet, so that a save on a freshly started server can't replace the latest
 /// snapshot with a near-empty one. The blocks that restore created are
 /// saved as it created them: their shells are still starting. Still saves if
-/// some sessions failed to restore, but then exits non-zero. If every
-/// session it tried failed, it restored nothing, so it saves nothing either:
-/// the latest snapshot stays as it is, and the next save restores first
-/// again.
+/// some sessions failed to restore, but then exits non-zero.
+///
+/// If every session it tried failed, it restored nothing, so it saves
+/// nothing either: the latest snapshot stays as it is. It counts the server
+/// instance as restored all the same, unlike `restore` and auto-restore:
+/// otherwise every later save would restore first, fail again, and never
+/// save anything on this server. Its error names the snapshot, to retry by
+/// hand.
 ///
 /// Holds the restore lock throughout: a save that finds a restore running
 /// waits for it rather than saving a half-restored server.
@@ -66,10 +70,14 @@ pub fn run() -> Result<ExitCode> {
         let mut out = std::io::stdout().lock();
         status = report.finish(&state, "save (restoring first)", &mut out);
         if report.every_attempt_failed() {
-            return Err(Error::new(
-                "every session failed to restore into this server instance, so nothing was \
-                 saved: the latest snapshot is unchanged, and the next save restores first again",
-            ));
+            lock.record_restored(&report.instance_id)?;
+            let snapshot = report.snapshot.as_deref().unwrap_or_default();
+            return Err(Error::new(format!(
+                "every session in snapshot {snapshot} failed to restore into this server \
+                 instance, so nothing was saved and the latest snapshot is unchanged; the next \
+                 save won't restore first, and saves what's live. To retry the restore, run \
+                 `rex-resurrect restore --snapshot {snapshot}`"
+            )));
         }
         restored_blocks = std::mem::take(&mut report.created_blocks);
     }

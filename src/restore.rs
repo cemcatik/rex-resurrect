@@ -71,8 +71,11 @@ pub enum Outcome {
 
 #[derive(Debug, Default)]
 pub struct RestoreReport {
-    /// False when there was no snapshot to restore from.
-    pub had_snapshot: bool,
+    /// The server instance it restored into.
+    pub instance_id: String,
+    /// The identifier of the snapshot it restored from; `None` when there
+    /// was no snapshot yet.
+    pub snapshot: Option<String>,
     pub dry_run: bool,
     pub outcomes: Vec<Outcome>,
     /// What each block restore created was created with, by block ID.
@@ -147,7 +150,7 @@ impl RestoreReport {
     }
 
     fn print(&self, out: &mut impl Write) -> std::io::Result<()> {
-        if !self.had_snapshot {
+        if self.snapshot.is_none() {
             return writeln!(out, "nothing to restore: no snapshot yet");
         }
         for outcome in &self.outcomes {
@@ -214,10 +217,11 @@ pub fn restore(
     options: &RestoreOptions,
 ) -> Result<RestoreReport> {
     let instance_id = rex.server_status()?.instance_id;
-    let report = restore_sessions(rex, state, options)?;
+    let mut report = restore_sessions(rex, state, options)?;
     if options.restores_whole_snapshot() && !report.every_attempt_failed() {
         lock.record_restored(&instance_id)?;
     }
+    report.instance_id = instance_id;
     Ok(report)
 }
 
@@ -231,7 +235,7 @@ fn restore_sessions(
     state: &StateDir,
     options: &RestoreOptions,
 ) -> Result<RestoreReport> {
-    let Some(snapshot) = chosen_snapshot(state, options)? else {
+    let Some((snapshot_id, snapshot)) = chosen_snapshot(state, options)? else {
         return Ok(RestoreReport::default());
     };
     let selected = selected_sessions(&snapshot, options)?;
@@ -247,7 +251,7 @@ fn restore_sessions(
     let replay = Replay::new(state);
 
     let mut report = RestoreReport {
-        had_snapshot: true,
+        snapshot: Some(snapshot_id),
         dry_run: options.dry_run,
         ..RestoreReport::default()
     };
@@ -319,15 +323,18 @@ fn restore_sessions(
     Ok(report)
 }
 
-/// The snapshot to restore from: the one asked for, else the latest
-/// (`None` before the first save).
-fn chosen_snapshot(state: &StateDir, options: &RestoreOptions) -> Result<Option<Snapshot>> {
+/// The snapshot to restore from, with its identifier: the one asked for,
+/// else the latest (`None` before the first save).
+fn chosen_snapshot(
+    state: &StateDir,
+    options: &RestoreOptions,
+) -> Result<Option<(String, Snapshot)>> {
     let store = SnapshotStore::new(state);
     let Some(id) = &options.snapshot else {
         return store.read_latest();
     };
     match store.read(id)? {
-        Some(snapshot) => Ok(Some(snapshot)),
+        Some(snapshot) => Ok(Some((id.clone(), snapshot))),
         None => Err(Error::new(format!(
             "no snapshot {id:?}: `rex-resurrect list` shows the snapshots"
         ))),
