@@ -121,6 +121,24 @@ impl TestEnv {
         std::fs::write(dir.join(block_id), format!("{command}\n")).unwrap();
     }
 
+    /// Ends the startup window of every session restore has created so far,
+    /// as if two minutes had passed: from now on, saves read their blocks as
+    /// they are, not as restore created them.
+    ///
+    /// The window is too long to wait out, so this is the one place tests
+    /// reach inside rex-resurrect's own state: it moves each session's
+    /// `restored_at` in `starting-sessions.json` far into the past.
+    pub fn end_startup_windows(&self) {
+        let path = self.state_dir().join("starting-sessions.json");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("reading {}: {e}; has restore run?", path.display()));
+        let mut sessions: serde_json::Value = serde_json::from_str(&text).unwrap();
+        for session in sessions.as_object_mut().unwrap().values_mut() {
+            session["restored_at"] = "2000-01-01T00:00:00.000000Z".into();
+        }
+        std::fs::write(&path, sessions.to_string()).unwrap();
+    }
+
     /// The entries in rex-resurrect's log (`rex-resurrect.log` in the state
     /// directory), oldest first; none if there's no log yet.
     pub fn log_entries(&self) -> Vec<String> {

@@ -85,6 +85,7 @@ fn a_save_from_an_empty_server_removes_nothing() {
     env.restore(&server);
     let restored = server.the_session_labelled("zz-proj");
     let restored_block = server.block_ids(&restored).remove(0);
+    env.write_recorder_file(&restored_block, "echo zz-restored");
     server.kill_session(&restored);
 
     env.save(&server);

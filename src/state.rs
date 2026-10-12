@@ -16,6 +16,9 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+
 use crate::error::{Context, Error, Result};
 use crate::settings;
 
@@ -243,6 +246,22 @@ fn parent_of(path: &Path) -> &Path {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     }
+}
+
+/// Reads a JSON state file; `T`'s default if it doesn't exist.
+pub fn read_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T> {
+    match read_file(path)? {
+        Some(bytes) => {
+            serde_json::from_slice(&bytes).with_context(|| format!("reading {}", path.display()))
+        }
+        None => Ok(T::default()),
+    }
+}
+
+/// Writes a JSON state file (see [`write_file`]).
+pub fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
+    let json = serde_json::to_vec_pretty(value).expect("state files serialize to JSON");
+    write_file(path, &json)
 }
 
 /// Reads a state file; `None` if it doesn't exist.

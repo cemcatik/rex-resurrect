@@ -8,11 +8,12 @@ use crate::create;
 use crate::error::{Context, Error, Result};
 use crate::instance::RestoreLock;
 use crate::lineage::LineageMap;
-use crate::restore::{self, CreatedBlocks};
+use crate::restore;
 use crate::retention::Retention;
 use crate::rex::Rex;
 use crate::scrollback::{NoScrollbackPrograms, ScrollbackStore};
 use crate::snapshot::{SavedLayout, SavedSession, Snapshot};
+use crate::startup::{Starting, StartingSessions};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 use crate::timestamp::Timestamp;
@@ -45,8 +46,9 @@ pub enum Saved {
 /// Restores first if rex-resurrect hasn't restored into this server instance
 /// yet, so that a save on a freshly started server can't replace the latest
 /// snapshot with a near-empty one. The blocks that restore created are
-/// saved as it created them: their shells are still starting. Still saves if
-/// some sessions failed to restore, but then exits non-zero.
+/// saved as it created them, like those of any restore in its startup
+/// window: their shells are still starting. Still saves if some sessions
+/// failed to restore, but then exits non-zero.
 ///
 /// If every session it tried failed, it restored nothing, so it saves
 /// nothing either: the latest snapshot stays as it is. It counts the server
@@ -64,8 +66,7 @@ pub fn run() -> Result<ExitCode> {
     let state = StateDir::from_env()?;
     let lock = RestoreLock::acquire(&state)?;
     let mut status = ExitCode::SUCCESS;
-    let mut restored_blocks = CreatedBlocks::new();
-    if let Some(mut report) = restore::restore_unrestored_instance(&rex, &state, &lock)? {
+    if let Some(report) = restore::restore_unrestored_instance(&rex, &state, &lock)? {
         println!("restored first: this server instance hadn't been restored into yet");
         let mut out = std::io::stdout().lock();
         status = report.finish(&state, "save (restoring first)", &mut out);
@@ -79,9 +80,8 @@ pub fn run() -> Result<ExitCode> {
                  `rex-resurrect restore --snapshot {snapshot}`"
             )));
         }
-        restored_blocks = std::mem::take(&mut report.created_blocks);
     }
-    match save(&rex, &state, settings, restored_blocks)? {
+    match save(&rex, &state, settings)? {
         Saved::Snapshot { path, sessions } => {
             println!("saved {sessions} session(s) to {}", path.display());
         }
@@ -92,21 +92,26 @@ pub fn run() -> Result<ExitCode> {
     Ok(status)
 }
 
-/// Saves every session worth saving. `restored`: the blocks a restore this
-/// run made first created, which are saved as they were created.
-pub fn save(
-    rex: &Rex,
-    state: &StateDir,
-    settings: Settings,
-    restored: CreatedBlocks,
-) -> Result<Saved> {
-    let saved = save_snapshot(rex, state, settings, restored);
-    // Scrollback is kept exactly as long as its snapshot: old snapshots'
-    // goes with them, and a save that wrote no snapshot (an empty server, a
-    // failure) leaves none behind.
+/// Saves every session worth saving.
+pub fn save(rex: &Rex, state: &StateDir, settings: Settings) -> Result<Saved> {
+    // Taken first: each kept session's scrollback is saved under the
+    // snapshot's name as the walk reaches it, and startup windows are judged
+    // as of then.
+    let taken_at = Timestamp::now();
+    let starting = StartingSessions::load(state)?.at(taken_at);
+    let replaying: Vec<String> = starting.snapshots().map(str::to_string).collect();
+    let saved = save_snapshot(rex, state, settings, taken_at, starting);
+    // Scrollback is kept as long as its snapshot: old snapshots' goes with
+    // them, and a save that wrote no snapshot (an empty server, a failure)
+    // leaves none behind. A restore in its startup window keeps its
+    // snapshot's longer: the replay may not have printed it yet, and saves
+    // in the window save the restored blocks' scrollback from it.
     let removed = SnapshotStore::new(state)
         .list()
-        .and_then(|kept| ScrollbackStore::new(state).remove_orphans(&kept))
+        .and_then(|mut kept| {
+            kept.extend(replaying);
+            ScrollbackStore::new(state).remove_orphans(&kept)
+        })
         .with_context(|| "removing old scrollback");
     let saved = saved?;
     removed?;
@@ -117,29 +122,41 @@ fn save_snapshot(
     rex: &Rex,
     state: &StateDir,
     settings: Settings,
-    restored: CreatedBlocks,
+    taken_at: Timestamp,
+    starting: Starting,
 ) -> Result<Saved> {
-    // Taken first: each kept session's scrollback is saved under the
-    // snapshot's name as the walk reaches it.
-    let taken_at = Timestamp::now();
     let lineages = LineageMap::load(state)?;
-    let context =
-        capture::CaptureContext::read(rex, state, taken_at, restored, settings.no_scrollback)?;
+    let mut context =
+        capture::CaptureContext::read(rex, state, taken_at, starting, settings.no_scrollback)?;
     let mut live = Live::new();
     let mut sessions = Vec::new();
+    let mut programs_seen = Vec::new();
     for summary in rex.list_sessions()? {
         let view = rex.view_session(&summary.session_id)?;
         live.add(&view);
         let lineage = lineages.lineage_of(&view.session_id);
         let saving = || format!("saving session {:?} ({})", view.label, view.session_id);
-        let captured =
+        let mut captured =
             capture::saved_session(rex, &context, &view, lineage).with_context(saving)?;
+        programs_seen.append(&mut captured.programs_seen);
         if worth_saving(&captured.saved, &context.home) {
             let saved = captured
                 .with_scrollback(rex, &context.scrollback)
                 .with_context(saving)?;
             sessions.push(saved);
         }
+    }
+    // Remembered whether or not a snapshot is written: they're what the
+    // blocks were seen running.
+    let mut remembered = false;
+    for (block_id, program) in &programs_seen {
+        remembered |= context.defaults.set(block_id, program);
+    }
+    if remembered {
+        context
+            .defaults
+            .save()
+            .with_context(|| "remembering the programs seen in blocks")?;
     }
     if sessions.is_empty() {
         return Ok(Saved::EmptyServer);

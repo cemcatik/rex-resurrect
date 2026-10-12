@@ -3,36 +3,44 @@
 use std::path::PathBuf;
 
 use crate::account;
+use crate::defaults::DefaultCommands;
 use crate::error::{Error, Result};
 use crate::foreground;
 use crate::label;
 use crate::lineage::Lineage;
 use crate::recorder::{Recorded, RecorderFiles};
-use crate::restore::CreatedBlocks;
-use crate::rex::api::{BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, WindowView};
+use crate::rex::api::{
+    BlockView, LayerView, LayoutView, SHELL_FLAVOR, SessionView, TerminalProcess, WindowView,
+};
 use crate::rex::{BlockRef, Rex};
 use crate::scrollback::{
     NoScrollbackPrograms, ScrollbackSource, ScrollbackStore, SnapshotScrollback,
 };
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedSplit, SavedWindow};
+use crate::startup::Starting;
 use crate::state::StateDir;
 use crate::timestamp::Timestamp;
 use crate::workdir;
 
 /// What a save captures blocks with: what it compares them against (the
-/// local server's host, the home directory), where it reads about them on
-/// this machine (the recorder files, the blocks this run just restored), the
-/// programs whose blocks get no scrollback, and where it saves scrollback.
+/// local server's host, the home directory), what it knows about them on
+/// this machine (the recorder files, the sessions and blocks in their
+/// startup window, the default last commands), the programs whose blocks
+/// get no scrollback, and where it saves scrollback.
 pub struct CaptureContext {
     /// The local server's host. A block with a different `host_id` is a
     /// remote block.
     pub host_id: String,
     /// Where a block with no working directory to save comes back.
     pub home: PathBuf,
-    /// Each local shell block's last command.
+    /// Each local shell block's last command, as its recorder recorded it.
     pub recorder: RecorderFiles,
-    /// The blocks the restore this save ran first created.
-    pub restored: CreatedBlocks,
+    /// The sessions and blocks restore created that are still starting.
+    pub starting: Starting,
+    /// Each block's default last command. A program the capture sees in a
+    /// block's foreground becomes the block's default
+    /// ([`CapturedSession::programs_seen`]); save records that.
+    pub defaults: DefaultCommands,
     /// Where the snapshot this save writes keeps its blocks' scrollback.
     pub scrollback: SnapshotScrollback,
     /// The programs whose blocks get no scrollback.
@@ -40,20 +48,21 @@ pub struct CaptureContext {
 }
 
 impl CaptureContext {
-    /// `taken_at`: the time of the snapshot this save writes. `restored`:
-    /// the blocks the restore this save ran first created, if any.
+    /// `taken_at`: the time of the snapshot this save writes. `starting`:
+    /// what's starting then.
     pub fn read(
         rex: &Rex,
         state: &StateDir,
         taken_at: Timestamp,
-        restored: CreatedBlocks,
+        starting: Starting,
         no_scrollback: NoScrollbackPrograms,
     ) -> Result<CaptureContext> {
         Ok(CaptureContext {
             host_id: rex.server_status()?.host_id,
             home: account::home()?,
             recorder: RecorderFiles::new(state),
-            restored,
+            starting,
+            defaults: DefaultCommands::load(state)?,
             scrollback: ScrollbackStore::new(state).for_snapshot(taken_at),
             no_scrollback,
         })
@@ -93,6 +102,10 @@ pub struct CapturedSession {
     /// One entry per block of `saved`, window by window in layout order: the
     /// block whose scrollback to save, or `None` for a block that gets none.
     scrollback: Vec<Option<ScrollbackSource>>,
+    /// The programs the capture saw in its blocks' foregrounds, as (block
+    /// ID, command line): each is its block's default last command from now
+    /// on.
+    pub programs_seen: Vec<(String, String)>,
 }
 
 impl CapturedSession {
@@ -103,12 +116,7 @@ impl CapturedSession {
         rex: &Rex,
         store: &SnapshotScrollback,
     ) -> Result<SavedSession> {
-        let blocks = self
-            .saved
-            .windows
-            .iter_mut()
-            .flat_map(|window| window.layout.blocks_mut());
-        for (block, source) in blocks.zip(self.scrollback) {
+        for (block, source) in self.saved.blocks_mut().zip(self.scrollback) {
             if let Some(source) = source {
                 block.scrollback = store.save(rex, &source)?;
             }
@@ -123,11 +131,15 @@ pub fn saved_session(
     view: &SessionView,
     lineage: Lineage,
 ) -> Result<CapturedSession> {
+    if let Some(created) = context.starting.unmatched_session(&view.session_id) {
+        return Ok(as_created(view, lineage, created));
+    }
     let mut capture = Capture {
         rex,
         context,
         session: view,
         scrollback: Vec::new(),
+        programs_seen: Vec::new(),
     };
     let windows = view
         .windows
@@ -141,7 +153,35 @@ pub fn saved_session(
             windows,
         },
         scrollback: capture.scrollback,
+        programs_seen: capture.programs_seen,
     })
+}
+
+/// A session in its startup window whose blocks restore couldn't tell apart,
+/// so it can't tell which live block is which either: saved as restore
+/// created it, scrollback included, under its live label.
+fn as_created(view: &SessionView, lineage: Lineage, created: &SavedSession) -> CapturedSession {
+    let mut saved = SavedSession {
+        lineage,
+        label: view.label.clone(),
+        windows: created.windows.clone(),
+    };
+    let scrollback = saved
+        .blocks_mut()
+        .map(|block| {
+            let scrollback = block.scrollback.take()?;
+            let block_id = scrollback.file_stem()?.to_str()?.to_string();
+            Some(ScrollbackSource::Restored {
+                block_id,
+                scrollback,
+            })
+        })
+        .collect();
+    CapturedSession {
+        saved,
+        scrollback,
+        programs_seen: Vec::new(),
+    }
 }
 
 /// One session's capture, under way.
@@ -151,6 +191,8 @@ struct Capture<'a> {
     session: &'a SessionView,
     /// [`CapturedSession::scrollback`] so far.
     scrollback: Vec<Option<ScrollbackSource>>,
+    /// [`CapturedSession::programs_seen`] so far.
+    programs_seen: Vec<(String, String)>,
 }
 
 impl Capture<'_> {
@@ -193,31 +235,34 @@ impl Capture<'_> {
         }
     }
 
-    /// A local shell block in its working directory, with its recorder file
-    /// as the source of truth for its last command, including a record that
-    /// it has none. A block without one (its shell started before the
-    /// recorder was installed) falls back to the program in its foreground.
-    /// Its scrollback is saved later, if save keeps the session. A block
-    /// this run just restored is saved as restore created it. A block that
-    /// isn't a shell block has no working directory, and a remote block's is
-    /// on another host, so either is saved as a plain shell in the home
-    /// directory.
+    /// A local shell block in its working directory, with its last command
+    /// (see [`Capture::last_command`]). Its scrollback is saved later, if
+    /// save keeps the session. A block in its startup window that its
+    /// recorder has recorded nothing for is saved as restore created it. A
+    /// block that isn't a shell block has no working directory, and a remote
+    /// block's is on another host, so either is saved as a plain shell in
+    /// the home directory.
     fn saved_block(&mut self, block: &BlockView) -> Result<SavedBlock> {
         if !self.context.is_local_shell(block) {
             return Ok(self.plain_shell());
         }
         let label = label::user_set_block_label(block).map(str::to_owned);
         let (rex, session_id, block_id) = (self.rex, &self.session.session_id, &block.block_id);
-        if let Some(created) = self.context.restored.get(block_id) {
-            // Its shell may still be starting: it hasn't reported a working
-            // directory, and the startup may be running in its foreground.
-            // Nothing can have run in it yet.
-            self.scrollback.push(created.scrollback.clone().map(|file| {
-                ScrollbackSource::Restored {
+        let recorded = self.context.recorder.read(block_id)?;
+        if recorded == Recorded::Nothing
+            && let Some(created) = self.context.starting.block(block_id)
+        {
+            // Its shell may still be starting: it may not have reported a
+            // working directory, its startup may be running in its
+            // foreground, and the replay may still be printing. Nothing the
+            // user did can have reached it, or its recorder would have
+            // recorded it.
+            let scrollback = created.scrollback.clone();
+            self.scrollback
+                .push(scrollback.map(|scrollback| ScrollbackSource::Restored {
                     block_id: block_id.clone(),
-                    file,
-                }
-            }));
+                    scrollback,
+                }));
             return Ok(SavedBlock {
                 label,
                 working_directory: created.working_directory.clone(),
@@ -226,15 +271,10 @@ impl Capture<'_> {
             });
         }
         let process = rex.terminal_process(session_id, block_id)?;
-        let last_command = match self.context.recorder.read(block_id)? {
-            Recorded::LastCommand(command) => Some(command),
-            Recorded::NoLastCommand => None,
-            Recorded::Nothing => foreground::foreground_command(&process)?,
-        };
         let saved = SavedBlock {
             label,
             working_directory: workdir::working_directory(rex, session_id, block_id, &process)?,
-            last_command,
+            last_command: self.last_command(block_id, recorded, &process)?,
             scrollback: None,
         };
         let has_scrollback = !self.context.no_scrollback.running_in(&process);
@@ -245,6 +285,36 @@ impl Capture<'_> {
             })
         }));
         Ok(saved)
+    }
+
+    /// A block's last command, read as it is: what its recorder recorded,
+    /// including a record that it has none, beats everything. Without one,
+    /// the program in its foreground (not rex-resurrect itself), which also
+    /// becomes the block's default last command, so it carries forward once
+    /// the program exits. Otherwise the block's default: the last program
+    /// seen there, else what restore typed there. Else none.
+    ///
+    /// This supersedes #6, under which a block restore created always had a
+    /// recorder file, so the fallback never applied to it: without a
+    /// recorder, a restored block then kept what restore typed forever.
+    fn last_command(
+        &mut self,
+        block_id: &str,
+        recorded: Recorded,
+        process: &TerminalProcess,
+    ) -> Result<Option<String>> {
+        Ok(match recorded {
+            Recorded::LastCommand(command) => Some(command),
+            Recorded::NoLastCommand => None,
+            Recorded::Nothing => match foreground::foreground_command(process)? {
+                Some(program) => {
+                    self.programs_seen
+                        .push((block_id.to_string(), program.clone()));
+                    Some(program)
+                }
+                None => self.context.defaults.get(block_id).map(str::to_string),
+            },
+        })
     }
 
     /// [`CaptureContext::plain_shell`]: no scrollback.

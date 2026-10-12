@@ -74,7 +74,7 @@ fn validate_layout(layout: &SavedLayout) -> Result<(), String> {
 }
 
 /// A session as recorded in a snapshot.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedSession {
     /// Which lineage this session belongs to (ADR-0001). Restore skips it
     /// while a session of the same lineage is live.
@@ -86,7 +86,23 @@ pub struct SavedSession {
     pub windows: Vec<SavedWindow>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl SavedSession {
+    /// Every block, window by window, in [`SavedLayout::blocks`] order.
+    pub fn blocks(&self) -> impl Iterator<Item = &SavedBlock> {
+        self.windows
+            .iter()
+            .flat_map(|window| window.layout.blocks())
+    }
+
+    /// [`SavedSession::blocks`], to change.
+    pub fn blocks_mut(&mut self) -> impl Iterator<Item = &mut SavedBlock> {
+        self.windows
+            .iter_mut()
+            .flat_map(|window| window.layout.blocks_mut())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedWindow {
     /// Only a user-set label; omitted so Rex generates a fresh default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,7 +112,7 @@ pub struct SavedWindow {
 }
 
 /// A layout node: exactly one of a block or a split, by construction.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SavedLayout {
     Block(SavedBlock),
@@ -129,7 +145,7 @@ impl SavedLayout {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedSplit {
     pub direction: Direction,
     /// `before`'s share, in (0, 1).
@@ -139,7 +155,7 @@ pub struct SavedSplit {
 }
 
 /// A shell block.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedBlock {
     /// Only a user-set label; omitted so Rex uses its default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
