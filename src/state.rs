@@ -16,6 +16,9 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+
 use crate::error::{Context, Error, Result};
 use crate::settings;
 
@@ -155,19 +158,27 @@ const STALE_AFTER: Duration = Duration::from_secs(60 * 60);
 pub fn remove_stale_temp_files(dir: &Path, is_temp: impl Fn(&str) -> bool) -> Result<()> {
     let stale_before = SystemTime::now() - STALE_AFTER;
     for entry in read_dir_or_empty(dir)? {
-        if !entry.file_name().to_str().is_some_and(&is_temp) {
-            continue;
+        if entry.file_name().to_str().is_some_and(&is_temp) {
+            remove_if_unchanged_since(&entry.path(), stale_before)?;
         }
-        // Not following symlinks: a temporary symlink is stale by its own age.
-        let metadata = entry
-            .metadata()
-            .with_context(|| format!("reading {}", entry.path().display()))?;
-        let modified = metadata
-            .modified()
-            .with_context(|| format!("reading {}", entry.path().display()))?;
-        if !metadata.is_dir() && modified < stale_before {
-            remove_if_exists(&entry.path())?;
-        }
+    }
+    Ok(())
+}
+
+/// Removes the file (or symlink) at `path` if it hasn't changed since
+/// `before`. A directory stays, and one that has gone already is fine: a
+/// write still going on may have renamed it since its directory was listed.
+fn remove_if_unchanged_since(path: &Path, before: SystemTime) -> Result<()> {
+    let reading = || format!("reading {}", path.display());
+    // Not following symlinks: a temporary symlink is stale by its own age.
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e).with_context(reading),
+    };
+    let modified = metadata.modified().with_context(reading)?;
+    if !metadata.is_dir() && modified < before {
+        remove_if_exists(path)?;
     }
     Ok(())
 }
@@ -237,11 +248,41 @@ fn parent_of(path: &Path) -> &Path {
     }
 }
 
+/// Reads a JSON state file; `T`'s default if it doesn't exist.
+pub fn read_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T> {
+    match read_file(path)? {
+        Some(bytes) => {
+            serde_json::from_slice(&bytes).with_context(|| format!("reading {}", path.display()))
+        }
+        None => Ok(T::default()),
+    }
+}
+
+/// Writes a JSON state file (see [`write_file`]).
+pub fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
+    let json = serde_json::to_vec_pretty(value).expect("state files serialize to JSON");
+    write_file(path, &json)
+}
+
 /// Reads a state file; `None` if it doesn't exist.
 pub fn read_file(path: &Path) -> Result<Option<Vec<u8>>> {
     match fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A temporary file can go between listing its directory and looking at
+    /// it: a recorder renames its own over a record at every command.
+    #[test]
+    fn a_temporary_file_that_has_already_gone_is_nothing_to_remove() {
+        let gone = Path::new("/nonexistent-rex-resurrect-dir/.record.123.tmp");
+        let removed = remove_if_unchanged_since(gone, SystemTime::now());
+        assert!(removed.is_ok(), "{}", removed.unwrap_err());
     }
 }

@@ -8,7 +8,7 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use crate::error::{Context, Result};
+use crate::error::{Context, Error, Result};
 use crate::retention::Retention;
 use crate::snapshot::Snapshot;
 use crate::state::{self, StateDir};
@@ -44,9 +44,28 @@ impl SnapshotStore {
         Ok(path)
     }
 
-    /// The latest snapshot, or `None` before the first save.
-    pub fn read_latest(&self) -> Result<Option<Snapshot>> {
-        read_snapshot(&self.latest)
+    /// The latest snapshot and its identifier, or `None` before the first
+    /// save.
+    pub fn read_latest(&self) -> Result<Option<(String, Snapshot)>> {
+        let target = match std::fs::read_link(&self.latest) {
+            Ok(target) => target,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => {
+                return Err(e).with_context(|| format!("reading {}", self.latest.display()));
+            }
+        };
+        let id = target
+            .file_name()
+            .and_then(OsStr::to_str)
+            .and_then(snapshot_id)
+            .ok_or_else(|| {
+                Error::new(format!(
+                    "{} points at {}, which isn't a snapshot",
+                    self.latest.display(),
+                    target.display()
+                ))
+            })?;
+        Ok(self.read(id)?.map(|snapshot| (id.to_string(), snapshot)))
     }
 
     /// Every snapshot's identifier, newest first.

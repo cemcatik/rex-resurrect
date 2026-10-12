@@ -1,6 +1,10 @@
 //! Recorder files: each block's last command, as recorded by the shell
-//! recorder (`rex-resurrect.plugin.zsh` at the repo root) and seeded by
-//! restore.
+//! recorder (`rex-resurrect.plugin.zsh` at the repo root). They belong to
+//! recorders: rex-resurrect reads them and removes those of blocks that
+//! aren't live, but never writes one, so a recorder file always means a
+//! recorder wrote it, and save can't race a recorder. What rex-resurrect
+//! knows about a block besides (what restore typed there, the last program a
+//! save saw in it) lives in its own state (see `defaults`).
 //!
 //! The format is shared by every recorder, whatever its shell:
 //! - one file per block, `recorder/<block ID>` in the state directory, named
@@ -9,12 +13,12 @@
 //! - its contents: the block's last command, UTF-8 text on one line, ending
 //!   in a newline (accepted without one);
 //! - an empty line (or an empty file) records that the block has **no last
-//!   command**. Restore writes one for each block it creates with nothing to
-//!   type, so save never falls back to the program in such a block's
-//!   foreground (see `foreground`): that fallback is only for blocks nothing
-//!   has recorded anything for, because their shell started before the
-//!   recorder was installed. Recorders never write one: they only record
-//!   commands;
+//!   command**, as firmly as a command: save then neither falls back to the
+//!   program in its foreground nor uses its default. The zsh recorder never
+//!   writes one (it only records commands), but a recorder may. Restores by
+//!   earlier versions of rex-resurrect wrote them too, and recorder files
+//!   holding commands, for the blocks they created: these still count as
+//!   recorders' records;
 //! - written to a temporary file whose name starts with `.` in the same
 //!   directory, then renamed over the record. Such a file left unchanged
 //!   for over an hour counts as left behind by a recorder that crashed, and
@@ -27,7 +31,7 @@
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use crate::error::{Context, Error, Result};
+use crate::error::{Context, Result};
 use crate::state::{self, StateDir};
 
 const DIR: &str = "recorder";
@@ -71,17 +75,6 @@ impl RecorderFiles {
         } else {
             Recorded::LastCommand(command.to_string())
         })
-    }
-
-    /// Records `command` as the block's last command, as its recorder would,
-    /// or, for `None`, that the block has no last command.
-    pub fn record(&self, block_id: &str, command: Option<&str>) -> Result<()> {
-        let path = self
-            .file(block_id)
-            .ok_or_else(|| Error::new(format!("block ID {block_id:?} can't name a file")))?;
-        // Through a hidden temp file and a rename, into a private directory,
-        // as the format above asks.
-        state::write_file(&path, format!("{}\n", command.unwrap_or("")).as_bytes())
     }
 
     /// Removes the records of blocks `is_live` says aren't live, unless they

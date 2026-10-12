@@ -19,8 +19,11 @@
 //!   directory;
 //! - every file goes through `state::write_file`, like snapshots;
 //! - retention: a snapshot's directory is removed once the snapshot is gone
-//!   (see [`ScrollbackStore::remove_orphans`]), so scrollback is kept
-//!   exactly as long as the snapshot it belongs to.
+//!   (see [`ScrollbackStore::remove_orphans`]), so scrollback is kept as
+//!   long as the snapshot it belongs to, or, if that's longer, as long as a
+//!   restore from that snapshot is in its startup window (see `startup`):
+//!   its replay may not have printed it yet, and saves in the window save
+//!   the restored blocks' scrollback from it.
 //!
 //! Restoring: see [`Replay`].
 
@@ -82,6 +85,7 @@ impl NoScrollbackPrograms {
 const ALTERNATE_SCREEN: [&str; 3] = ["\x1b[?1049h", "\x1b[?1047h", "\x1b[?47h"];
 
 /// Every snapshot's scrollback.
+#[derive(Debug, Clone)]
 pub struct ScrollbackStore {
     state: StateDir,
 }
@@ -98,13 +102,14 @@ impl ScrollbackStore {
     pub fn for_snapshot(&self, taken_at: Timestamp) -> SnapshotScrollback {
         let relative = Path::new(DIR).join(taken_at.compact());
         SnapshotScrollback {
+            store: self.clone(),
             dir: self.state.join(&relative),
             relative,
         }
     }
 
     /// Removes the scrollback of every snapshot not in `snapshot_ids` (the
-    /// snapshots still on disk), and anything a save left behind without
+    /// snapshots to keep it for), and anything a save left behind without
     /// writing its snapshot.
     pub fn remove_orphans(&self, snapshot_ids: &[String]) -> Result<()> {
         for entry in state::read_dir_or_empty(&self.state.join(DIR))? {
@@ -128,11 +133,11 @@ impl ScrollbackStore {
         Ok(())
     }
 
-    /// The file holding a saved block's scrollback, if it has one and the
-    /// file is still there. A recorded path that would reach outside the
-    /// state directory counts as none.
-    fn file(&self, block: &SavedBlock) -> Option<PathBuf> {
-        let relative = block.scrollback.as_deref()?;
+    /// The file holding a saved block's scrollback, where the block records
+    /// it (`relative`, relative to the state directory), if the file is
+    /// still there. A recorded path that would reach outside the state
+    /// directory counts as none.
+    fn file(&self, relative: &Path) -> Option<PathBuf> {
         let inside = relative
             .components()
             .all(|c| matches!(c, Component::Normal(_)));
@@ -144,6 +149,8 @@ impl ScrollbackStore {
 /// One save's scrollback directory.
 #[derive(Debug)]
 pub struct SnapshotScrollback {
+    /// Where restored blocks' scrollback comes from.
+    store: ScrollbackStore,
     dir: PathBuf,
     /// `dir` relative to the state directory.
     relative: PathBuf,
@@ -154,10 +161,17 @@ pub struct SnapshotScrollback {
 pub enum ScrollbackSource {
     /// The block's terminal, read through Rex.
     Terminal(BlockRef),
-    /// The file restore printed in the block it just created: nothing else
-    /// can have reached its terminal yet, and the printing may not have
-    /// finished.
-    Restored { block_id: String, file: PathBuf },
+    /// The scrollback restore printed in a block it created, in the startup
+    /// window: nothing else can have reached the block's terminal yet, and
+    /// the printing may not have finished. `scrollback` is where the saved
+    /// block it was created from records it.
+    Restored {
+        /// The name to save it under: the block's ID, or, for a block
+        /// restore couldn't tell apart from its siblings, the ID of the
+        /// block it was saved from.
+        block_id: String,
+        scrollback: PathBuf,
+    },
 }
 
 impl SnapshotScrollback {
@@ -170,10 +184,17 @@ impl SnapshotScrollback {
             ScrollbackSource::Terminal(block) => {
                 (&block.block_id, terminal_scrollback(rex, block)?)
             }
-            ScrollbackSource::Restored { block_id, file } => (
+            ScrollbackSource::Restored {
                 block_id,
-                state::read_file(file)?.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
-            ),
+                scrollback,
+            } => {
+                let content = match self.store.file(scrollback) {
+                    Some(file) => state::read_file(&file)?
+                        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
+                    None => None,
+                };
+                (block_id, content)
+            }
         };
         let Some(content) = content.filter(|_| state::is_plain_file_name(block_id)) else {
             return Ok(None);
@@ -272,23 +293,15 @@ impl Replay {
         }
     }
 
-    /// The file [`Replay::apply`] prints for `block`: its saved scrollback,
-    /// unless the block has no scrollback file (any more), or there's no
-    /// account to start the shell as.
-    pub fn file(&self, block: &SavedBlock) -> Option<PathBuf> {
-        let account = self.account.as_ref()?;
-        let file = self.store.file(block)?;
-        (file.to_str().is_some() && account.shell.to_str().is_some()).then_some(file)
+    /// Whether [`Replay::apply`] prints `block`'s saved scrollback.
+    pub fn prints(&self, block: &SavedBlock) -> bool {
+        self.arguments(block).is_some()
     }
 
     /// Makes `options` start the block by printing `block`'s saved
-    /// scrollback ([`Replay::file`]). Leaves them alone if there's none to
-    /// print.
+    /// scrollback. Leaves them alone if there's none to print.
     pub fn apply(&self, block: &SavedBlock, options: &mut TerminalOptions) {
-        let (Some(account), Some(file)) = (&self.account, self.file(block)) else {
-            return;
-        };
-        let (Some(file), Some(shell)) = (file.to_str(), account.shell.to_str()) else {
+        let Some(ReplayArguments { file, user, shell }) = self.arguments(block) else {
             return;
         };
         let argv = [
@@ -298,8 +311,8 @@ impl Replay {
             "-c",
             REPLAY_SCRIPT,
             "rex-resurrect",
-            file,
-            &account.user,
+            &file,
+            user,
             LOGIN_SHELL_EXEC,
             shell,
         ];
@@ -307,4 +320,26 @@ impl Replay {
         options.shell = Some("none".to_string());
         options.login = Some(false);
     }
+
+    /// What [`REPLAY_SCRIPT`] prints `block`'s scrollback with, as the text
+    /// its arguments must be. `None` if the block has no scrollback file
+    /// (any more), there's no account to start the shell as, or either path
+    /// isn't valid UTF-8.
+    fn arguments(&self, block: &SavedBlock) -> Option<ReplayArguments<'_>> {
+        let account = self.account.as_ref()?;
+        let file = self.store.file(block.scrollback.as_deref()?)?;
+        Some(ReplayArguments {
+            file: file.into_os_string().into_string().ok()?,
+            user: &account.user,
+            shell: account.shell.to_str()?,
+        })
+    }
+}
+
+/// [`REPLAY_SCRIPT`]'s arguments: the scrollback file, the user, and the
+/// login shell.
+struct ReplayArguments<'a> {
+    file: String,
+    user: &'a str,
+    shell: &'a str,
 }

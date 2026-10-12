@@ -24,10 +24,11 @@
 #   character, keeping the previous record: typed back at a prompt, a line
 #   break would act as Enter.
 # - Ignores the trivial commands on the ignore list, REX_RESURRECT_IGNORE,
-#   keeping the previous record, so the restored prompt shows the last
-#   meaningful command. A command line is ignored when it runs one command
-#   alone, whatever its arguments, and that command's name (as typed) is on
-#   the list: `ls -la` and `cd src` are ignored, `cd src && make` is
+#   and rex-resurrect itself, keeping the previous record, so the restored
+#   prompt shows the last meaningful command. A command line is ignored when
+#   it runs one command alone, whatever its arguments, and that command's
+#   name (as typed, or the last part of the path typed) is on the list:
+#   `ls -la`, `/bin/ls` and `cd src` are ignored, `cd src && make` is
 #   recorded. The defaults are set when the plugin loads, unless
 #   REX_RESURRECT_IGNORE is already set:
 #     REX_RESURRECT_IGNORE+=(htop tig)    # after loading: extend the defaults
@@ -40,6 +41,10 @@
 #
 # Recorder files, the contract between recorders (whatever their shell) and
 # rex-resurrect:
+# - Only recorders write them. rex-resurrect reads them, and removes those
+#   of blocks that are gone, but never writes one. A block's record beats
+#   anything else rex-resurrect knows about the block (the program in its
+#   foreground, what restore typed at its prompt).
 # - Path: <state dir>/recorder/<block ID>, the block ID exactly as REX_BLOCK
 #   holds it (recorder/block:01a129c9-08f8-74b3-b44a-5573c12596b0).
 # - State dir, first match wins: $REX_RESURRECT_STATE_DIR;
@@ -47,11 +52,10 @@
 #   $HOME/.local/state/rex-resurrect.
 # - Contents: the block's last command, UTF-8 text on one line, ending in a
 #   newline (readers accept it without one). Only the latest is kept.
-# - An empty line records that the block has no last command. Restore writes
-#   one for each block it creates with nothing to type, so rex-resurrect never
-#   takes the program in that block's foreground for its last command (that
-#   fallback is only for blocks with no file at all). Recorders never write
-#   one: they only record commands.
+# - An empty line records that the block has no last command: rex-resurrect
+#   then doesn't fall back to the program in its foreground either (that
+#   fallback is only for blocks with no file at all). This recorder never
+#   writes one: it only records commands.
 # - Written to a temporary file in the same directory whose name starts with
 #   `.`, then renamed over the record, so a reader never sees half a command.
 #   A save removes such a file once it has gone unchanged for an hour (left
@@ -59,19 +63,20 @@
 # - The recorder directory is private (0700): commands can hold secrets.
 
 # The ignore list's defaults: commands that only look or move around, or
-# clear the screen. typeset -g: oh-my-zsh sources plugins inside a function.
+# clear the screen, and rex-resurrect itself. typeset -g: oh-my-zsh sources
+# plugins inside a function.
 (( ${+REX_RESURRECT_IGNORE} )) ||
-  typeset -ga REX_RESURRECT_IGNORE=(ls ll la l cd pushd popd pwd clear reset exit)
+  typeset -ga REX_RESURRECT_IGNORE=(ls ll la l cd pushd popd pwd clear reset exit rex-resurrect)
 
 # Whether the command line $1 is on the ignore list: one command, not joined
 # to others by `;`, `&&`, `|` and the like, whose name is in
-# REX_RESURRECT_IGNORE.
+# REX_RESURRECT_IGNORE as typed or as the last part of its path (`/bin/ls`).
 _rex_resurrect_ignored() {
   emulate -L zsh
   local -a words=(${(z)1}) ignore=(${=REX_RESURRECT_IGNORE})
   local -a separators=(';' '&' '&&' '||' '|' '|&' '&!' '&|')
   local -a joined=(${words:*separators})
-  (( $#joined == 0 && ${ignore[(Ie)$words[1]]} ))
+  (( $#joined == 0 && (${ignore[(Ie)$words[1]]} || ${ignore[(Ie)${words[1]:t}]}) ))
 }
 
 _rex_resurrect_record() {

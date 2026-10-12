@@ -59,11 +59,10 @@ fn a_block_where_no_command_was_ever_recorded_restores_with_an_empty_prompt() {
     server.assert_empty_prompt(&restored, &blocks[1]);
 }
 
-/// The foreground fallback is for blocks whose shell started before
-/// rex-resurrect was installed. A block restore created has a record: here,
-/// that it has no last command. So a save that reads the block while its
-/// shell is still starting (a slow zsh config, here a `sleep` in `.zshrc`)
-/// doesn't take the startup's foreground program for one.
+/// A save that reads a block while its shell is still starting (a slow zsh
+/// config, here a `sleep` in `.zshrc`) doesn't take the startup's foreground
+/// program for its last command: in its startup window, a block restore
+/// created is saved as restore created it, here with no last command.
 #[test]
 fn a_block_restored_with_no_last_command_gets_none_from_a_save_while_its_shell_starts() {
     let env = TestEnv::builder().zshrc_line("sleep 3").build();
@@ -82,7 +81,40 @@ fn a_block_restored_with_no_last_command_gets_none_from_a_save_while_its_shell_s
     env.restore(&server);
 
     let again = server.the_session_labelled("zz-slow");
-    server.assert_empty_prompt(&again, &server.block_ids(&again)[0]);
+    let block = server.block_ids(&again).remove(0);
+    // The replayed scrollback ends in the old prompt: wait for the shell's
+    // own first prompt, which reports its working directory.
+    server.wait_for_pwd(&again, &block);
+    server.assert_empty_prompt(&again, &block);
+}
+
+/// What the recorder recorded beats everything else save knows about a
+/// block: the program in its foreground (here `tail`, run through an alias,
+/// which the recorder records as typed) and what restore typed there.
+#[test]
+fn the_recorders_record_beats_the_program_in_a_restored_blocks_foreground() {
+    let plugin = common::zsh::quote(&common::zsh::recorder_plugin());
+    let env = TestEnv::builder()
+        .zshrc_line(format!("source {plugin}"))
+        .zshrc_line("alias zz-follow='tail -f /dev/null'")
+        .build();
+    let server = env.start_server();
+    let fixture = server.create_session("zz-alias", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    let command = "echo zz-before";
+    server.run(&fixture.id, fixture.block_ids()[0], command);
+    server.wait_for_capture(&fixture.id, fixture.block_ids()[0], "the echo", |c| {
+        c.contains("\nzz-before")
+    });
+    let (session, block) = save_kill_restore(&env, &server, &fixture.id, "zz-alias");
+    server.wait_for_typed(&session, &block, command);
+    env.end_startup_windows();
+
+    // Clear the typed command (Ctrl-U) and follow.
+    server.write(&session, &block, "\u{15}zz-follow\n");
+    server.wait_for_foreground(&session, &block, "tail");
+    let (session, block) = save_kill_restore(&env, &server, &session, "zz-alias");
+    server.wait_for_typed(&session, &block, "zz-follow");
 }
 
 #[test]

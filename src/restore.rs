@@ -2,22 +2,23 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crate::account;
 use crate::create;
+use crate::defaults::DefaultCommands;
 use crate::error::{Context, Error, Result};
 use crate::instance::RestoreLock;
 use crate::lineage::{Lineage, LineageMap};
 use crate::log;
-use crate::recorder::RecorderFiles;
 use crate::rex::Rex;
-use crate::rex::api::CreatedSession;
+use crate::rex::api::{CreatedSession, ServerStatus};
 use crate::scrollback::Replay;
-use crate::snapshot::{SavedBlock, SavedSession, Snapshot};
+use crate::snapshot::{SavedSession, Snapshot};
+use crate::startup::StartingSessions;
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
+use crate::timestamp::Timestamp;
 
 #[derive(Debug, Default)]
 pub struct RestoreOptions {
@@ -71,28 +72,11 @@ pub enum Outcome {
 
 #[derive(Debug, Default)]
 pub struct RestoreReport {
-    /// False when there was no snapshot to restore from.
-    pub had_snapshot: bool,
+    /// The identifier of the snapshot it restored from; `None` when there
+    /// was no snapshot yet.
+    pub snapshot: Option<String>,
     pub dry_run: bool,
     pub outcomes: Vec<Outcome>,
-    /// What each block restore created was created with, by block ID.
-    pub created_blocks: CreatedBlocks,
-}
-
-/// The blocks a restore created, by block ID.
-pub type CreatedBlocks = HashMap<String, CreatedBlock>;
-
-/// What restore created a block with. Until something runs in the block,
-/// that's all there is to it, so a save that restored first saves it as
-/// this rather than read a shell that's still starting.
-#[derive(Debug)]
-pub struct CreatedBlock {
-    /// Where its shell started.
-    pub working_directory: PathBuf,
-    /// What restore typed at its prompt.
-    pub last_command: Option<String>,
-    /// The scrollback restore printed in it.
-    pub scrollback: Option<PathBuf>,
 }
 
 impl RestoreReport {
@@ -147,7 +131,7 @@ impl RestoreReport {
     }
 
     fn print(&self, out: &mut impl Write) -> std::io::Result<()> {
-        if !self.had_snapshot {
+        if self.snapshot.is_none() {
             return writeln!(out, "nothing to restore: no snapshot yet");
         }
         for outcome in &self.outcomes {
@@ -184,54 +168,59 @@ impl RestoreReport {
 pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
     let state = StateDir::from_env()?;
     let lock = RestoreLock::acquire(&state)?;
-    let report = restore(&Rex::from_env(), &state, &lock, options)?;
+    let rex = Rex::from_env();
+    let server = rex.server_status()?;
+    let report = restore(&rex, &state, &lock, &server, options)?;
     Ok(report.finish(&state, "restore", &mut std::io::stdout().lock()))
 }
 
-/// Restores into the server's current instance, unless rex-resurrect already
+/// Restores into the server's current instance, the one `server` (its
+/// `server.status`, read under `lock`) names, unless rex-resurrect already
 /// has: `None` then. `save` runs this first; auto-restore, once the server is
 /// ready, needs nothing else.
 pub fn restore_unrestored_instance(
     rex: &Rex,
     state: &StateDir,
     lock: &RestoreLock,
+    server: &ServerStatus,
 ) -> Result<Option<RestoreReport>> {
-    let instance_id = rex.server_status()?.instance_id;
-    if lock.is_restored(&instance_id)? {
+    if lock.is_restored(&server.instance_id)? {
         return Ok(None);
     }
-    restore(rex, state, lock, &RestoreOptions::default()).map(Some)
+    restore(rex, state, lock, server, &RestoreOptions::default()).map(Some)
 }
 
 /// Restores a snapshot and, once that has finished, records the server
-/// instance it restored into, unless `options` restore less than a whole
-/// snapshot or every session it tried to create failed. Sessions that
-/// failed don't stop it from finishing.
+/// instance it restored into (`server`'s), unless `options` restore less
+/// than a whole snapshot or every session it tried to create failed.
+/// Sessions that failed don't stop it from finishing.
 pub fn restore(
     rex: &Rex,
     state: &StateDir,
     lock: &RestoreLock,
+    server: &ServerStatus,
     options: &RestoreOptions,
 ) -> Result<RestoreReport> {
-    let instance_id = rex.server_status()?.instance_id;
     let report = restore_sessions(rex, state, options)?;
     if options.restores_whole_snapshot() && !report.every_attempt_failed() {
-        lock.record_restored(&instance_id)?;
+        lock.record_restored(&server.instance_id)?;
     }
     Ok(report)
 }
 
 /// Creates each saved session whose lineage has no live session (ADR-0001)
-/// and records the new session's lineage; a dry run only reports what it
-/// would create. A session that fails, to create or to have its last
-/// commands carried forward, doesn't stop the others; errors that stop the
+/// and records the new session's lineage, what it was created with for
+/// saves in its startup window (see `startup`), and its blocks' default
+/// last commands for saves after that (see `defaults`); a dry run only
+/// reports what it would create. A session that fails, to create or to have
+/// its blocks told apart, doesn't stop the others; errors that stop the
 /// whole restore (no server, unreadable or unwritable state) are returned.
 fn restore_sessions(
     rex: &Rex,
     state: &StateDir,
     options: &RestoreOptions,
 ) -> Result<RestoreReport> {
-    let Some(snapshot) = chosen_snapshot(state, options)? else {
+    let Some((snapshot_id, snapshot)) = chosen_snapshot(state, options)? else {
         return Ok(RestoreReport::default());
     };
     let selected = selected_sessions(&snapshot, options)?;
@@ -242,12 +231,15 @@ fn restore_sessions(
         .iter()
         .map(|s| (lineages.lineage_of(&s.session_id), s.session_id.clone()))
         .collect();
-    lineages.retain_live(|id| live_sessions.iter().any(|s| s.session_id == id));
-    let recorder = RecorderFiles::new(state);
+    let is_live = |id: &str| live_sessions.iter().any(|s| s.session_id == id);
+    lineages.retain_live(is_live);
+    let mut starting = StartingSessions::load(state)?;
+    starting.retain(Timestamp::now(), is_live);
+    let mut defaults = DefaultCommands::load(state)?;
     let replay = Replay::new(state);
 
     let mut report = RestoreReport {
-        had_snapshot: true,
+        snapshot: Some(snapshot_id.clone()),
         dry_run: options.dry_run,
         ..RestoreReport::default()
     };
@@ -264,7 +256,8 @@ fn restore_sessions(
             report.outcomes.push(Outcome::WouldCreate { label });
             continue;
         }
-        let created = match rex.create_session(&create::create_request(saved, &home, &replay)) {
+        let as_created = create::as_created(saved, &home, &replay);
+        let created = match rex.create_session(&create::create_request(&as_created, &replay)) {
             Ok(created) => created,
             Err(e) => {
                 report.outcomes.push(Outcome::Failed {
@@ -285,49 +278,66 @@ fn restore_sessions(
             )
         })?;
         live.insert(saved.lineage.clone(), created.session_id.clone());
-        let carried = new_blocks(saved, &created)
-            .and_then(|blocks| carry_forward(&recorder, &blocks).map(|()| blocks));
-        let blocks = match carried {
-            Ok(blocks) => blocks,
-            Err(e) => {
-                report.outcomes.push(Outcome::Failed {
-                    label,
-                    error: format!(
-                        "created as {}, but its last commands couldn't be carried forward: {e}",
-                        created.session_id
-                    ),
-                    session_id: Some(created.session_id),
-                });
-                continue;
-            }
+        // Restore no longer writes recorder files (#6 had it seed each new
+        // block's with what it typed there, which kept the foreground
+        // fallback from ever applying to a restored block): what it typed
+        // is the block's default, which a program seen there replaces.
+        let block_ids = new_block_ids(&as_created, &created);
+        let recording = || {
+            format!(
+                "recording what restored session {} was created with",
+                created.session_id
+            )
         };
-        for (block_id, block) in blocks {
-            let created_with = CreatedBlock {
-                working_directory: create::working_directory(block, &home),
-                last_command: create::typed_command(block).map(str::to_string),
-                scrollback: replay.file(block),
-            };
-            report
-                .created_blocks
-                .insert(block_id.to_string(), created_with);
+        if let Ok(block_ids) = &block_ids {
+            let mut changed = false;
+            for (block_id, block) in block_ids.iter().zip(as_created.blocks()) {
+                if let Some(command) = &block.last_command {
+                    changed |= defaults.set(block_id, command);
+                }
+            }
+            if changed {
+                defaults.save().with_context(recording)?;
+            }
         }
-        report.outcomes.push(Outcome::Created {
-            label,
-            session_id: created.session_id,
+        starting.record(
+            &created.session_id,
+            &snapshot_id,
+            as_created,
+            block_ids.as_ref().ok().cloned(),
+        );
+        starting.save().with_context(recording)?;
+        report.outcomes.push(match block_ids {
+            Ok(_) => Outcome::Created {
+                label,
+                session_id: created.session_id,
+            },
+            Err(e) => Outcome::Failed {
+                label,
+                error: format!(
+                    "created as {}, but its new blocks couldn't be told apart, so their last \
+                     commands won't carry forward: {e}",
+                    created.session_id
+                ),
+                session_id: Some(created.session_id),
+            },
         });
     }
     Ok(report)
 }
 
-/// The snapshot to restore from: the one asked for, else the latest
-/// (`None` before the first save).
-fn chosen_snapshot(state: &StateDir, options: &RestoreOptions) -> Result<Option<Snapshot>> {
+/// The snapshot to restore from, with its identifier: the one asked for,
+/// else the latest (`None` before the first save).
+fn chosen_snapshot(
+    state: &StateDir,
+    options: &RestoreOptions,
+) -> Result<Option<(String, Snapshot)>> {
     let store = SnapshotStore::new(state);
     let Some(id) = &options.snapshot else {
         return store.read_latest();
     };
     match store.read(id)? {
-        Some(snapshot) => Ok(Some(snapshot)),
+        Some(snapshot) => Ok(Some((id.clone(), snapshot))),
         None => Err(Error::new(format!(
             "no snapshot {id:?}: `rex-resurrect list` shows the snapshots"
         ))),
@@ -362,54 +372,35 @@ fn selected_sessions<'a>(
     Ok(selected)
 }
 
-/// Seeds each new block's recorder file with the command restore typed at its
-/// prompt, or a record that it has no last command. Typed input never
-/// reaches the recorder (nothing ran), so without this the next save would
-/// find no last command. With it, the command carries forward through any
-/// number of restores until the block's shell records a new one. And a block
-/// restored with no last command keeps none: save never mistakes a program
-/// in its foreground (its shell still starting, say) for one.
-fn carry_forward(recorder: &RecorderFiles, blocks: &[(&str, &SavedBlock)]) -> Result<()> {
-    for (block_id, block) in blocks {
-        recorder.record(block_id, create::typed_command(block))?;
-    }
-    Ok(())
-}
-
-/// Each block `session.create` created for `saved`, by ID, with the saved
-/// block it was created from.
+/// The IDs of the blocks `session.create` created for `as_created`, in
+/// [`SavedSession::blocks`] order.
 ///
 /// `session.create` returns each window's block IDs in layout order
 /// (depth-first, `before` then `after`), the order `SavedLayout::blocks`
 /// walks the saved layout in.
-fn new_blocks<'a>(
-    saved: &'a SavedSession,
-    created: &'a CreatedSession,
-) -> Result<Vec<(&'a str, &'a SavedBlock)>> {
-    if created.initial_windows.len() != saved.windows.len() {
+fn new_block_ids(as_created: &SavedSession, created: &CreatedSession) -> Result<Vec<String>> {
+    if created.initial_windows.len() != as_created.windows.len() {
         return Err(Error::new(format!(
             "session.create returned {} windows for {} saved ones",
             created.initial_windows.len(),
-            saved.windows.len()
+            as_created.windows.len()
         )));
     }
-    let mut new_blocks = Vec::new();
-    for (i, (window, created_window)) in saved
+    let mut ids = Vec::new();
+    for (i, (window, created_window)) in as_created
         .windows
         .iter()
         .zip(&created.initial_windows)
         .enumerate()
     {
-        let blocks = window.layout.blocks();
-        if blocks.len() != created_window.block_ids.len() {
+        let blocks = window.layout.blocks().len();
+        if blocks != created_window.block_ids.len() {
             return Err(Error::new(format!(
-                "session.create returned {} block IDs for window {i}, which has {} saved blocks",
+                "session.create returned {} block IDs for window {i}, which has {blocks} saved blocks",
                 created_window.block_ids.len(),
-                blocks.len()
             )));
         }
-        let ids = created_window.block_ids.iter().map(String::as_str);
-        new_blocks.extend(ids.zip(blocks));
+        ids.extend(created_window.block_ids.iter().cloned());
     }
-    Ok(new_blocks)
+    Ok(ids)
 }

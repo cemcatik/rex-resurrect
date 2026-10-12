@@ -127,10 +127,9 @@ fn a_block_showing_a_full_screen_program_gets_no_scrollback_replay() {
 
 #[test]
 fn a_block_restored_with_its_scrollback_saves_and_restores_again_like_any_other() {
-    // No recorder. Restore records that a block it created with no last
-    // command has none, so save never falls back to the program in its
-    // foreground: neither the way the replay starts the shell nor a program
-    // the user starts in it becomes a last command.
+    // No recorder. The way the replay starts the shell never becomes a last
+    // command (the startup window covers it), but a program the user starts
+    // in the block once it has started does, as in any block.
     let env = TestEnv::new();
     let server = env.start_server();
     let [a, b] = ["a", "b"].map(|name| env.mkdir(name));
@@ -152,6 +151,7 @@ fn a_block_restored_with_its_scrollback_saves_and_restores_again_like_any_other(
     for block in &blocks {
         server.wait_for_empty_prompt(&restored, block);
     }
+    env.end_startup_windows();
     // One restored block starts a program; the other stays idle.
     let tail = "tail -f /dev/null";
     server.run(&restored, &blocks[1], tail);
@@ -173,17 +173,9 @@ fn a_block_restored_with_its_scrollback_saves_and_restores_again_like_any_other(
 
     let again = server.the_session_labelled("zz-again");
     let blocks = server.block_ids(&again);
-    for block in &blocks {
-        server.wait_for_empty_prompt(&again, block);
-    }
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    let [idle, ran_tail] = [0, 1].map(|i| server.capture(&again, &blocks[i]));
-    for capture in [&idle, &ran_tail] {
-        assert!(
-            capture.trim_end().ends_with(" %"),
-            "a block restored with no last command gets none:\n{capture}"
-        );
-    }
+    server.wait_for_typed(&again, &blocks[1], tail);
+    server.assert_empty_prompt(&again, &blocks[0]);
+    let idle = server.capture(&again, &blocks[0]);
     assert!(
         above_prompt(&idle).contains(&"zz-first-run"),
         "its scrollback carries over from before the first restore:\n{idle}"

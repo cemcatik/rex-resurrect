@@ -160,6 +160,38 @@ fn an_ignored_command_leaves_the_previous_last_command_in_place() {
     assert_restored_with_typed(&env, &server, "zz-ignored", &[&meaningful]);
 }
 
+/// An ignore list entry matches the command as typed or the last part of
+/// its path, and rex-resurrect is on the list by default: running it is
+/// never what a block was doing.
+#[test]
+fn rex_resurrect_and_ignored_commands_run_by_path_leave_the_previous_last_command_in_place() {
+    let env = TestEnv::with_recorder();
+    let server = env.start_server();
+    let a = env.mkdir("a");
+    std::fs::write(a.join("zz-listed"), "").unwrap();
+    let fixture = server.create_session("zz-by-path", &[window(shell(&a))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    let touched = env.root().join("zz-touched");
+    let meaningful = format!("touch {}", touched.display());
+    server.run(&fixture.id, block, &meaningful);
+    wait_for_file(&touched);
+    server.run(
+        &fixture.id,
+        block,
+        &format!("{} list", common::resurrect::bin()),
+    );
+    server.wait_for_capture(&fixture.id, block, "rex-resurrect's list", |c| {
+        c.contains("\nno snapshots yet")
+    });
+    server.run(&fixture.id, block, "/bin/ls");
+    server.wait_for_capture(&fixture.id, block, "the ls output", |c| {
+        c.contains("\nzz-listed")
+    });
+
+    assert_restored_with_typed(&env, &server, "zz-by-path", &[&meaningful]);
+}
+
 #[test]
 fn a_command_line_joining_an_ignored_command_to_another_is_recorded() {
     let env = TestEnv::with_recorder();

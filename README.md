@@ -9,9 +9,9 @@ needs nothing else at runtime.
 > **Status:** early. `save` and `restore` bring back each session's label, its windows in order,
 > each window's split layout and ratios, window and block labels you set, each block's working
 > directory, each block's earlier output above its prompt, and each block's last command typed
-> at that prompt: the one the zsh recorder recorded or, without one, the program that was
-> running in the block. Autosave runs `save` every 15 minutes, and auto-restore runs `restore`
-> when the Rex server starts.
+> at that prompt: the one the zsh recorder recorded or, without one, the program running in
+> the block or last seen running there. Autosave runs `save` every 15 minutes, and auto-restore
+> runs `restore` when the Rex server starts.
 
 ## Install
 
@@ -69,9 +69,11 @@ New shells pick it up. The recorder:
 #### The ignore list
 
 By default the recorder ignores `ls`, `ll`, `la`, `l`, `cd`, `pushd`, `popd`, `pwd`, `clear`,
-`reset` and `exit`. A command line is ignored when it runs one of these on its own, with any
-arguments: `ls -la` and `cd src` are ignored, but `cd src && make` is recorded. Commands are
-matched by name as you typed them, so an alias counts under its own name.
+`reset`, `exit` and `rex-resurrect` itself. A command line is ignored when it runs one of these
+on its own, with any arguments: `ls -la` and `cd src` are ignored, but `cd src && make` is
+recorded. Commands are matched by name as you typed them, so an alias counts under its own
+name, or by the last part of the path you typed: `/bin/ls` and `target/debug/rex-resurrect save`
+are ignored too.
 
 The list is the zsh array `REX_RESURRECT_IGNORE`. You don't have to set it. To change it, set it
 in `~/.zshrc`:
@@ -142,7 +144,8 @@ come back as a plain shell in your home directory. Floating blocks aren't saved.
 Each restored block's last command is typed at its prompt but **never run**: press Enter to
 resume, edit it, or clear it. Only single-line commands are typed; a block with no last
 command gets an empty prompt. A restored block keeps its last command through later saves and
-restores until you run something new in it.
+restores until the recorder records something new in it or, without the recorder, until a save
+sees a program running in it.
 
 Each restored block also shows its scrollback, the output it held at save time, above the
 `Last login:` line and the new prompt, styles included. It wraps to the block's current width
@@ -162,35 +165,51 @@ export REX_RESURRECT_NO_SCROLLBACK="claude aider"
 
 Set it where `save` sees it, and run `autosave install` again afterwards, so autosave uses it too.
 
-A block the recorder never recorded anything in, such as one whose shell started before you
-loaded the recorder, falls back to the program running in it at save time: `nvim`, a dev server
-or a nested shell comes back with its full command line typed at the prompt. Arguments come
-from `ps`, which drops their quoting. A block that was sitting at a prompt gets an empty prompt.
-A block that restore created never falls back: restore records the last command it typed there,
-or that there was none, so a save that runs while the block's shell is still starting never
-mistakes the startup for a command.
+Without the recorder (you don't use zsh, or skipped that step), or in a block whose shell
+started before you loaded it, rex-resurrect falls back to the program running in the block at
+save time: `nvim`, a dev server or a nested shell comes back with its full command line typed at
+the prompt. Arguments come from `ps`, which drops their quoting. The save also remembers that
+program as the block's last command, so it still comes back after the program exits and the
+block sits at a prompt. A block sitting at a prompt that no save has seen a program in comes back
+with the command restore typed there, if restore created it, or else an empty prompt. Running
+`rex-resurrect` itself (a `save` you ran there) never counts as a program. Restored blocks fall
+back like any other: what restore typed is only their last command until a save sees a program
+in them. (This replaces the first design, #6, in which a restored block never fell back, so
+without the recorder it kept what restore typed forever.) Whatever the recorder recorded beats
+all of this.
 
 Restore recognises sessions by where they came from, not by label: two saved sessions with the
 same label both come back, a restored session you rename still counts as live, and a session
 you created by hand under a saved label doesn't (see
 [ADR-0001](docs/adr/0001-match-sessions-by-lineage-not-label.md)).
 
+For two minutes after a restore (any restore: `restore`, auto-restore, or the one a `save` runs
+first) creates a session, a save saves that session's blocks as restore created them: working
+directory, last command and scrollback. Their shells may still be starting then: a slow shell
+config may still be running, and the scrollback may still be printing, so reading them as they
+are would save the startup instead. A block the recorder records a command in during those two
+minutes is saved as it is. A session whose new blocks restore couldn't tell apart is saved as it
+was in the snapshot it came from. The snapshot's scrollback is kept for those two minutes even if
+retention removes the snapshot itself.
+
 After a server restart, the first `save` restores before it saves, unless a `restore` already
 ran on that server. A save that runs on a freshly started server (an autosave, say) therefore
-can't replace your latest snapshot with a near-empty one. It saves the blocks it just restored
-as it restored them (working directory, last command, scrollback), since their shells are still
-starting and nothing has run in them yet. A save on a server already restored
+can't replace your latest snapshot with a near-empty one. A save on a server already restored
 into never restores again, even if you've killed restored sessions since. A `--dry-run` or
 `--session` restore doesn't count, because it leaves sessions out: a save after it would replace
 your latest snapshot without the other sessions. Restoring a whole older snapshot does count.
 Only one restore runs at a time, and a `save` that starts during a restore waits for it to
 finish.
 
-A restore in which every session it tried to create failed (a server that refuses them, say)
-restored nothing, so it doesn't count either, whether it was `restore`, auto-restore or the
-restore a `save` runs first. Such a `save` saves nothing: it leaves `latest.json` alone, logs
-why and exits non-zero, and the next save restores first again. If only some sessions fail, the
-save goes ahead and still exits non-zero.
+A `restore` or auto-restore in which every session it tried to create failed (a server that
+refuses them, say) restored nothing, so it doesn't count either, and the next save restores
+first. If every session fails in the restore a `save` runs first too, that save saves nothing:
+it leaves `latest.json` alone, exits non-zero, and logs which snapshot failed to restore. It
+does count the server as restored, though, so the next save goes ahead and saves what's live
+instead of failing the same way forever. To try that snapshot again, run the command the
+message gives, `rex-resurrect restore --snapshot <id>`, before the next save (an autosave
+within 15 minutes) replaces `latest.json`; the snapshot itself stays in `list` until retention
+removes it. If only some sessions fail, the save goes ahead and still exits non-zero.
 
 rex-resurrect never starts a Rex server. If Rex isn't running, `save` and `restore` fail and
 say so.
@@ -217,20 +236,24 @@ Snapshots and rex-resurrect's own bookkeeping live in its state directory:
 It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which live session
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
 sessions that are already live. `restored-instances` names the server instances restore has run
-in (the 32 most recent), and `restore.lock` makes restores take turns. `recorder/` holds one file
-per block with its last command, or an empty line for a block restore created with none. Each
-save that writes a snapshot then removes the `recorder/` files of
-blocks that no longer exist and the `lineage.json` entries of sessions that no longer exist, so
-the directory doesn't grow forever. A save that fails or writes nothing removes nothing.
-`scrollback/` holds each snapshot's block scrollback, which goes when its snapshot goes; a block
-with 50,000 lines of output takes about 340 KB per snapshot. `rex-resurrect.log` is the log of
+in (the 32 most recent), and `restore.lock` makes restores take turns. `starting-sessions.json`
+holds what restore created each session with, for saves in its first two minutes.
+`recorder/` holds one file per block with the last command the recorder recorded; only
+recorders write there. `default-commands.json` holds each block's last command when there's no
+recorder file: the last program a save saw running in it, else the command restore typed there.
+Each save that writes a snapshot then removes the `recorder/` files and `default-commands.json`
+entries of blocks that no longer exist, and the `lineage.json` and `starting-sessions.json`
+entries of sessions that no longer exist, so the directory doesn't grow forever. A save that
+fails or writes nothing removes nothing. `scrollback/` holds each snapshot's block scrollback,
+which goes when its snapshot goes (or two minutes after a restore from it, if that's later); a
+block with 50,000 lines of output takes about 340 KB per snapshot. `rex-resurrect.log` is the log of
 failures and auto-restore outcomes. The recorder finds the state directory the same way, so set
 `REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
 Autosave and auto-restore run outside your shells, so `autosave install` and
 `auto-restore --print-hook` pin the state directory they resolve.
 
-Snapshots, scrollback and recorder files hold commands, and commands can hold secrets, so the
-state directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
+Snapshots, scrollback, recorder files, `default-commands.json` and `starting-sessions.json` hold
+commands, and commands can hold secrets, so the state directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
 rex-resurrect writes its own files with mode `0600`, and the recorder keeps its files in a
 `0700` directory. Every file except the log is written atomically (a temporary file, then a
 rename), so a crash never leaves a partial snapshot or record behind; the log is appended to.

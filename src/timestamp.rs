@@ -1,6 +1,6 @@
 //! UTC timestamps without a date-time dependency.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -21,6 +21,16 @@ impl Timestamp {
             secs: since_epoch.as_secs(),
             micros: since_epoch.subsec_micros(),
         }
+    }
+
+    /// How long after `earlier` this is; `None` if it's before it (the
+    /// clock went backwards).
+    pub fn since(&self, earlier: Timestamp) -> Option<Duration> {
+        self.duration().checked_sub(earlier.duration())
+    }
+
+    fn duration(&self) -> Duration {
+        Duration::new(self.secs, self.micros * 1000)
     }
 
     /// `2026-10-11T07:04:49.856123Z`

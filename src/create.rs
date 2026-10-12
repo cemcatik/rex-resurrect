@@ -1,6 +1,6 @@
 //! Turning a saved session into a `session.create` request.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::rex::api::{
     CreateBlock, CreateLayout, CreateSession, CreateSplit, CreateWindow, SHELL_FLAVOR,
@@ -9,48 +9,62 @@ use crate::rex::api::{
 use crate::scrollback::Replay;
 use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedWindow};
 
-/// The request that recreates `saved`. `home` is where a block goes whose
-/// saved directory no longer exists; `replay` prints each block's saved
-/// scrollback above its new prompt.
-pub fn create_request(saved: &SavedSession, home: &Path, replay: &Replay) -> CreateSession {
+/// `saved` as restore creates it. Every block comes back as a plain shell
+/// block in its saved directory, or in `home` if that directory no longer
+/// exists, with its last command typed at its prompt if it can be typed
+/// ([`typed_command`]), and its scrollback printed above that prompt if
+/// `replay` can print it. Rex would quietly start the shell in its own home
+/// anyway, but rex-resurrect doesn't rely on that.
+pub fn as_created(saved: &SavedSession, home: &Path, replay: &Replay) -> SavedSession {
+    let mut created = saved.clone();
+    for block in created.blocks_mut() {
+        if !replay.prints(block) {
+            block.scrollback = None;
+        }
+        block.last_command = typed_command(block).map(str::to_string);
+        if !block.working_directory.is_dir() {
+            block.working_directory = home.to_path_buf();
+        }
+    }
+    created
+}
+
+/// The request that creates `created`, a session [`as_created`] made.
+/// `replay` prints each block's scrollback above its new prompt.
+pub fn create_request(created: &SavedSession, replay: &Replay) -> CreateSession {
     CreateSession {
-        label: saved.label.clone(),
-        initial_windows: saved
+        label: created.label.clone(),
+        initial_windows: created
             .windows
             .iter()
-            .map(|window| create_window(window, home, replay))
+            .map(|window| create_window(window, replay))
             .collect(),
     }
 }
 
-fn create_window(window: &SavedWindow, home: &Path, replay: &Replay) -> CreateWindow {
+fn create_window(window: &SavedWindow, replay: &Replay) -> CreateWindow {
     CreateWindow {
         window_label: window.label.clone(),
-        layout: create_layout(&window.layout, home, replay),
+        layout: create_layout(&window.layout, replay),
     }
 }
 
-fn create_layout(layout: &SavedLayout, home: &Path, replay: &Replay) -> CreateLayout {
+fn create_layout(layout: &SavedLayout, replay: &Replay) -> CreateLayout {
     match layout {
-        SavedLayout::Block(block) => CreateLayout::Block(create_block(block, home, replay)),
+        SavedLayout::Block(block) => CreateLayout::Block(create_block(block, replay)),
         SavedLayout::Split(split) => CreateLayout::Split(CreateSplit {
             direction: split.direction,
             ratio: split.ratio,
-            before: Box::new(create_layout(&split.before, home, replay)),
-            after: Box::new(create_layout(&split.after, home, replay)),
+            before: Box::new(create_layout(&split.before, replay)),
+            after: Box::new(create_layout(&split.after, replay)),
         }),
     }
 }
 
-/// Every block comes back as a plain shell block in its saved directory, or
-/// in `home` if that directory no longer exists, with its saved scrollback
-/// above the prompt and its last command typed at it. Rex would quietly
-/// start the shell in its own home anyway, but rex-resurrect doesn't rely on
-/// that.
-fn create_block(block: &SavedBlock, home: &Path, replay: &Replay) -> CreateBlock {
+fn create_block(block: &SavedBlock, replay: &Replay) -> CreateBlock {
     let mut options = TerminalOptions {
-        cwd: Some(working_directory(block, home)),
-        initial_input: typed_command(block).map(str::to_string),
+        cwd: Some(block.working_directory.clone()),
+        initial_input: block.last_command.clone(),
         ..TerminalOptions::default()
     };
     replay.apply(block, &mut options);
@@ -58,16 +72,6 @@ fn create_block(block: &SavedBlock, home: &Path, replay: &Replay) -> CreateBlock
         flavor: SHELL_FLAVOR.to_string(),
         label: block.label.clone(),
         options,
-    }
-}
-
-/// The directory restore starts a block's shell in: its saved working
-/// directory, or `home` if that's no longer a directory.
-pub fn working_directory(block: &SavedBlock, home: &Path) -> PathBuf {
-    if block.working_directory.is_dir() {
-        block.working_directory.clone()
-    } else {
-        home.to_path_buf()
     }
 }
 

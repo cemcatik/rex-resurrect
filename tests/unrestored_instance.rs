@@ -85,6 +85,30 @@ fn a_save_that_restores_first_saves_the_blocks_it_restored_as_restore_created_th
     assert_eq!(third.window_shapes(&restored), [layout().expected_shape()]);
 }
 
+/// Restoring first and saving read the server instance once, so they can't
+/// disagree on which instance they restored into and saved.
+#[test]
+fn a_save_that_restores_first_reads_the_server_status_once() {
+    let env = TestEnv::new();
+    env.saved_on_an_earlier_server(&["zz-proj"]);
+    let server = env.start_server();
+    let calls = env.root().join("server-status-calls");
+    let stub = RexStub::new(&env).after(
+        "server.status",
+        &format!("echo >> {}", common::stub::sh_quote(&calls)),
+    );
+
+    let out = env
+        .resurrect(&server)
+        .arg("save")
+        .path_prepend(stub.dir())
+        .run()
+        .assert_success();
+    assert!(out.stdout.contains("restored first"), "{out}");
+    let count = std::fs::read_to_string(&calls).unwrap().lines().count();
+    assert_eq!(count, 1, "{out}");
+}
+
 #[test]
 fn with_no_snapshot_yet_save_saves_and_counts_the_instance_as_restored() {
     let env = TestEnv::new();
@@ -220,31 +244,46 @@ fn a_server_that_cant_restore_anything(env: &TestEnv) -> Server {
     server
 }
 
-/// A restore in which every session failed restored nothing: a save after it
-/// must still restore first rather than replace the latest snapshot.
+/// A save whose restore first fails for every session restored nothing, so
+/// it saves nothing either and exits non-zero, naming the snapshot that
+/// failed and how to retry. It counts the server instance as restored all
+/// the same: otherwise every later save would restore first, fail again and
+/// never save anything on this server. The next save saves what's live.
 #[test]
-fn a_save_whose_restore_first_fails_for_every_session_saves_nothing_and_exits_non_zero() {
+fn a_save_whose_restore_first_fails_for_every_session_saves_nothing_and_the_next_save_saves_whats_live()
+ {
     let env = TestEnv::new();
     let server = a_server_that_cant_restore_anything(&env);
     let snapshots = env.listed(&server);
+    let id = snapshots.split("  ").next().unwrap().to_string();
+    let retry = format!("rex-resurrect restore --snapshot {id}");
 
-    for _ in 0..2 {
-        let out = env.resurrect(&server).arg("save").run().assert_failure();
-        assert!(out.stdout.contains("restored first"), "{out}");
-        assert_eq!(env.listed(&server), snapshots, "no new snapshot: {out}");
-    }
+    let out = env.resurrect(&server).arg("save").run().assert_failure();
+    assert!(out.stdout.contains("restored first"), "{out}");
+    assert!(out.stderr.contains(&retry), "{out}");
+    assert_eq!(env.listed(&server), snapshots, "no new snapshot: {out}");
     let entries = env.log_entries();
     assert!(
         entries
             .iter()
-            .any(|e| e.contains("save failed") && e.contains("nothing was saved")),
+            .any(|e| e.contains("save failed") && e.contains(&retry)),
         "{entries:#?}"
     );
+
+    let next = env.save(&server);
+    assert!(!next.stdout.contains("restored first"), "{next}");
+    assert_eq!(server.sorted_labels(), ["zz-early"]);
 
     drop(server);
     let third = env.start_server();
     env.restore(&third);
-    assert_eq!(third.sorted_labels(), ["zz-wide"]);
+    assert_eq!(third.sorted_labels(), ["zz-early"]);
+    // The snapshot that failed to restore is still there to retry.
+    env.resurrect(&third)
+        .args(["restore", "--snapshot", &id])
+        .run()
+        .assert_success();
+    assert_eq!(third.sorted_labels(), ["zz-early", "zz-wide"]);
 }
 
 #[test]

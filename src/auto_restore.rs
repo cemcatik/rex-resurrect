@@ -145,7 +145,11 @@ fn restore_when_ready(pid: u32) -> Result<ExitCode> {
         .ok_or_else(|| Error::new(format!("there's no Rex server with pid {pid}")))?;
     let ready = wait_until_ready(&server, timeout)?;
     let lock = RestoreLock::acquire(&state)?;
-    let (outcome, status) = match restore::restore_unrestored_instance(&ready.rex, &state, &lock)? {
+    // Read again under the lock: the instance to restore into is whichever
+    // the server is running once it's this run's turn.
+    let server = ready.rex.server_status()?;
+    let restored = restore::restore_unrestored_instance(&ready.rex, &state, &lock, &server)?;
+    let (outcome, status) = match restored {
         None => (
             "already restored into; nothing to do".to_string(),
             ExitCode::SUCCESS,
@@ -158,7 +162,7 @@ fn restore_when_ready(pid: u32) -> Result<ExitCode> {
     };
     let message = format!(
         "auto-restore into {} (server instance {}): {outcome}",
-        ready.endpoint, ready.instance_id
+        ready.endpoint, server.instance_id
     );
     println!("{message}");
     Log::new(&state).append(&message)?;
@@ -169,7 +173,6 @@ fn restore_when_ready(pid: u32) -> Result<ExitCode> {
 struct Ready {
     rex: Rex,
     endpoint: String,
-    instance_id: String,
 }
 
 /// Checks the endpoints the server may be listening on until one answers
@@ -186,11 +189,7 @@ fn wait_until_ready(server: &ServerProcess, timeout: Duration) -> Result<Ready> 
             let rex = Rex::at(&server.program, &endpoint);
             match rex.with_timeout(CHECK_TIMEOUT).server_status() {
                 Ok(status) if status.pid == server.pid => {
-                    return Ok(Ready {
-                        rex,
-                        endpoint,
-                        instance_id: status.instance_id,
-                    });
+                    return Ok(Ready { rex, endpoint });
                 }
                 Ok(status) => {
                     candidates.retain(|c| *c != endpoint);
