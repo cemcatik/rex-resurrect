@@ -11,6 +11,7 @@ use crate::lineage::LineageMap;
 use crate::restore;
 use crate::retention::Retention;
 use crate::rex::Rex;
+use crate::rex::api::ServerStatus;
 use crate::scrollback::{NoScrollbackPrograms, ScrollbackStore};
 use crate::snapshot::{SavedLayout, SavedSession, Snapshot};
 use crate::startup::{Starting, StartingSessions};
@@ -65,13 +66,16 @@ pub fn run() -> Result<ExitCode> {
     let rex = Rex::from_env();
     let state = StateDir::from_env()?;
     let lock = RestoreLock::acquire(&state)?;
+    // Read once, under the lock: restoring first and saving agree on the
+    // server instance, and on which host is local.
+    let server = rex.server_status()?;
     let mut status = ExitCode::SUCCESS;
-    if let Some(report) = restore::restore_unrestored_instance(&rex, &state, &lock)? {
+    if let Some(report) = restore::restore_unrestored_instance(&rex, &state, &lock, &server)? {
         println!("restored first: this server instance hadn't been restored into yet");
         let mut out = std::io::stdout().lock();
         status = report.finish(&state, "save (restoring first)", &mut out);
         if report.every_attempt_failed() {
-            lock.record_restored(&report.instance_id)?;
+            lock.record_restored(&server.instance_id)?;
             let snapshot = report.snapshot.as_deref().unwrap_or_default();
             return Err(Error::new(format!(
                 "every session in snapshot {snapshot} failed to restore into this server \
@@ -81,7 +85,7 @@ pub fn run() -> Result<ExitCode> {
             )));
         }
     }
-    match save(&rex, &state, settings)? {
+    match save(&rex, &state, &server, settings)? {
         Saved::Snapshot { path, sessions } => {
             println!("saved {sessions} session(s) to {}", path.display());
         }
@@ -92,15 +96,21 @@ pub fn run() -> Result<ExitCode> {
     Ok(status)
 }
 
-/// Saves every session worth saving.
-pub fn save(rex: &Rex, state: &StateDir, settings: Settings) -> Result<Saved> {
+/// Saves every session worth saving on the server `server` (its
+/// `server.status`) describes.
+pub fn save(
+    rex: &Rex,
+    state: &StateDir,
+    server: &ServerStatus,
+    settings: Settings,
+) -> Result<Saved> {
     // Taken first: each kept session's scrollback is saved under the
     // snapshot's name as the walk reaches it, and startup windows are judged
     // as of then.
     let taken_at = Timestamp::now();
     let starting = StartingSessions::load(state)?.at(taken_at);
     let replaying: Vec<String> = starting.snapshots().map(str::to_string).collect();
-    let saved = save_snapshot(rex, state, settings, taken_at, starting);
+    let saved = save_snapshot(rex, state, server, settings, taken_at, starting);
     // Scrollback is kept as long as its snapshot: old snapshots' goes with
     // them, and a save that wrote no snapshot (an empty server, a failure)
     // leaves none behind. A restore in its startup window keeps its
@@ -121,13 +131,19 @@ pub fn save(rex: &Rex, state: &StateDir, settings: Settings) -> Result<Saved> {
 fn save_snapshot(
     rex: &Rex,
     state: &StateDir,
+    server: &ServerStatus,
     settings: Settings,
     taken_at: Timestamp,
     starting: Starting,
 ) -> Result<Saved> {
     let lineages = LineageMap::load(state)?;
-    let mut context =
-        capture::CaptureContext::read(rex, state, taken_at, starting, settings.no_scrollback)?;
+    let mut context = capture::CaptureContext::read(
+        state,
+        &server.host_id,
+        taken_at,
+        starting,
+        settings.no_scrollback,
+    )?;
     let mut live = Live::new();
     let mut sessions = Vec::new();
     let mut programs_seen = Vec::new();

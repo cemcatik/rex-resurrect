@@ -85,6 +85,30 @@ fn a_save_that_restores_first_saves_the_blocks_it_restored_as_restore_created_th
     assert_eq!(third.window_shapes(&restored), [layout().expected_shape()]);
 }
 
+/// Restoring first and saving read the server instance once, so they can't
+/// disagree on which instance they restored into and saved.
+#[test]
+fn a_save_that_restores_first_reads_the_server_status_once() {
+    let env = TestEnv::new();
+    env.saved_on_an_earlier_server(&["zz-proj"]);
+    let server = env.start_server();
+    let calls = env.root().join("server-status-calls");
+    let stub = RexStub::new(&env).after(
+        "server.status",
+        &format!("echo >> {}", common::stub::sh_quote(&calls)),
+    );
+
+    let out = env
+        .resurrect(&server)
+        .arg("save")
+        .path_prepend(stub.dir())
+        .run()
+        .assert_success();
+    assert!(out.stdout.contains("restored first"), "{out}");
+    let count = std::fs::read_to_string(&calls).unwrap().lines().count();
+    assert_eq!(count, 1, "{out}");
+}
+
 #[test]
 fn with_no_snapshot_yet_save_saves_and_counts_the_instance_as_restored() {
     let env = TestEnv::new();

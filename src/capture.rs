@@ -48,17 +48,17 @@ pub struct CaptureContext {
 }
 
 impl CaptureContext {
-    /// `taken_at`: the time of the snapshot this save writes. `starting`:
-    /// what's starting then.
+    /// `host_id`: the local server's host. `taken_at`: the time of the
+    /// snapshot this save writes. `starting`: what's starting then.
     pub fn read(
-        rex: &Rex,
         state: &StateDir,
+        host_id: &str,
         taken_at: Timestamp,
         starting: Starting,
         no_scrollback: NoScrollbackPrograms,
     ) -> Result<CaptureContext> {
         Ok(CaptureContext {
-            host_id: rex.server_status()?.host_id,
+            host_id: host_id.to_string(),
             home: account::home()?,
             recorder: RecorderFiles::new(state),
             starting,

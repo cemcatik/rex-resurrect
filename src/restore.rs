@@ -12,7 +12,7 @@ use crate::instance::RestoreLock;
 use crate::lineage::{Lineage, LineageMap};
 use crate::log;
 use crate::rex::Rex;
-use crate::rex::api::CreatedSession;
+use crate::rex::api::{CreatedSession, ServerStatus};
 use crate::scrollback::Replay;
 use crate::snapshot::{SavedSession, Snapshot};
 use crate::startup::StartingSessions;
@@ -72,8 +72,6 @@ pub enum Outcome {
 
 #[derive(Debug, Default)]
 pub struct RestoreReport {
-    /// The server instance it restored into.
-    pub instance_id: String,
     /// The identifier of the snapshot it restored from; `None` when there
     /// was no snapshot yet.
     pub snapshot: Option<String>,
@@ -170,41 +168,43 @@ impl RestoreReport {
 pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
     let state = StateDir::from_env()?;
     let lock = RestoreLock::acquire(&state)?;
-    let report = restore(&Rex::from_env(), &state, &lock, options)?;
+    let rex = Rex::from_env();
+    let server = rex.server_status()?;
+    let report = restore(&rex, &state, &lock, &server, options)?;
     Ok(report.finish(&state, "restore", &mut std::io::stdout().lock()))
 }
 
-/// Restores into the server's current instance, unless rex-resurrect already
+/// Restores into the server's current instance, the one `server` (its
+/// `server.status`, read under `lock`) names, unless rex-resurrect already
 /// has: `None` then. `save` runs this first; auto-restore, once the server is
 /// ready, needs nothing else.
 pub fn restore_unrestored_instance(
     rex: &Rex,
     state: &StateDir,
     lock: &RestoreLock,
+    server: &ServerStatus,
 ) -> Result<Option<RestoreReport>> {
-    let instance_id = rex.server_status()?.instance_id;
-    if lock.is_restored(&instance_id)? {
+    if lock.is_restored(&server.instance_id)? {
         return Ok(None);
     }
-    restore(rex, state, lock, &RestoreOptions::default()).map(Some)
+    restore(rex, state, lock, server, &RestoreOptions::default()).map(Some)
 }
 
 /// Restores a snapshot and, once that has finished, records the server
-/// instance it restored into, unless `options` restore less than a whole
-/// snapshot or every session it tried to create failed. Sessions that
-/// failed don't stop it from finishing.
+/// instance it restored into (`server`'s), unless `options` restore less
+/// than a whole snapshot or every session it tried to create failed.
+/// Sessions that failed don't stop it from finishing.
 pub fn restore(
     rex: &Rex,
     state: &StateDir,
     lock: &RestoreLock,
+    server: &ServerStatus,
     options: &RestoreOptions,
 ) -> Result<RestoreReport> {
-    let instance_id = rex.server_status()?.instance_id;
-    let mut report = restore_sessions(rex, state, options)?;
+    let report = restore_sessions(rex, state, options)?;
     if options.restores_whole_snapshot() && !report.every_attempt_failed() {
-        lock.record_restored(&instance_id)?;
+        lock.record_restored(&server.instance_id)?;
     }
-    report.instance_id = instance_id;
     Ok(report)
 }
 
