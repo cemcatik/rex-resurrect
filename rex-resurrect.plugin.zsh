@@ -41,6 +41,10 @@
 #
 # Recorder files, the contract between recorders (whatever their shell) and
 # rex-resurrect:
+# - Only recorders write them. rex-resurrect reads them, and removes those
+#   of blocks that are gone, but never writes one. A block's record beats
+#   anything else rex-resurrect knows about the block (the program in its
+#   foreground, what restore typed at its prompt).
 # - Path: <state dir>/recorder/<block ID>, the block ID exactly as REX_BLOCK
 #   holds it (recorder/block:01a129c9-08f8-74b3-b44a-5573c12596b0).
 # - State dir, first match wins: $REX_RESURRECT_STATE_DIR;
@@ -48,11 +52,10 @@
 #   $HOME/.local/state/rex-resurrect.
 # - Contents: the block's last command, UTF-8 text on one line, ending in a
 #   newline (readers accept it without one). Only the latest is kept.
-# - An empty line records that the block has no last command. Restore writes
-#   one for each block it creates with nothing to type, so rex-resurrect never
-#   takes the program in that block's foreground for its last command (that
-#   fallback is only for blocks with no file at all). Recorders never write
-#   one: they only record commands.
+# - An empty line records that the block has no last command: rex-resurrect
+#   then doesn't fall back to the program in its foreground either (that
+#   fallback is only for blocks with no file at all). This recorder never
+#   writes one: it only records commands.
 # - Written to a temporary file in the same directory whose name starts with
 #   `.`, then renamed over the record, so a reader never sees half a command.
 #   A save removes such a file once it has gone unchanged for an hour (left

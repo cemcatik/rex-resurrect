@@ -83,7 +83,7 @@ A command the recorder doesn't record, leaving the previous last command in plac
 _Avoid_: skip list, skipped command
 
 **Last command**:
-The command a restored shell block gets typed at its prompt, never run: the most recent command the block's outermost shell recorded. A restored block starts out with the last command it was restored with, or with none, and keeps that, across any number of server instances, until its shell records a new one. Only a block nothing has recorded anything for (its shell started before the recorder was installed) falls back to the program in its foreground.
+The command a restored shell block gets typed at its prompt, never run: the most recent command the block's recorder recorded. A block the recorder has recorded nothing for (no recorder installed, or its shell started before it was) falls back to the program in its foreground, and keeps the last such program once it exits; failing that, a restored block keeps the last command it was restored with, or none. That way it carries forward across any number of server instances. rex-resurrect itself running in a block is never its last command.
 _Avoid_: last history entry
 
 ### Restoring
@@ -101,6 +101,9 @@ A live session that restore created from a saved session. It belongs to the save
 **Lineage**:
 A session plus every session restore has created from it, across any number of restarts. Only one session of a lineage is ever live.
 _Avoid_: version (easily confused with a snapshot)
+
+**Startup window**:
+The first two minutes after restore creates a session, while its blocks' shells may still be starting. A save in it saves the session's blocks as restore created them, except a block the recorder has recorded a command in since.
 
 **Skipped session**:
 A saved session that restore doesn't create because a session of its lineage is already live. A live session with the same label but a different lineage doesn't count.
