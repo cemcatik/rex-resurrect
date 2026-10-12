@@ -18,7 +18,7 @@ use crate::snapshot::{SavedBlock, SavedLayout, SavedSession, SavedWindow};
 pub fn as_created(saved: &SavedSession, home: &Path, replay: &Replay) -> SavedSession {
     let mut created = saved.clone();
     for block in created.blocks_mut() {
-        if replay.file(block).is_none() {
+        if !replay.prints(block) {
             block.scrollback = None;
         }
         block.last_command = typed_command(block).map(str::to_string);

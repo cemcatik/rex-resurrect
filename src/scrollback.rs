@@ -293,23 +293,15 @@ impl Replay {
         }
     }
 
-    /// The file [`Replay::apply`] prints for `block`: its saved scrollback,
-    /// unless the block has no scrollback file (any more), or there's no
-    /// account to start the shell as.
-    pub fn file(&self, block: &SavedBlock) -> Option<PathBuf> {
-        let account = self.account.as_ref()?;
-        let file = self.store.file(block.scrollback.as_deref()?)?;
-        (file.to_str().is_some() && account.shell.to_str().is_some()).then_some(file)
+    /// Whether [`Replay::apply`] prints `block`'s saved scrollback.
+    pub fn prints(&self, block: &SavedBlock) -> bool {
+        self.arguments(block).is_some()
     }
 
     /// Makes `options` start the block by printing `block`'s saved
-    /// scrollback ([`Replay::file`]). Leaves them alone if there's none to
-    /// print.
+    /// scrollback. Leaves them alone if there's none to print.
     pub fn apply(&self, block: &SavedBlock, options: &mut TerminalOptions) {
-        let (Some(account), Some(file)) = (&self.account, self.file(block)) else {
-            return;
-        };
-        let (Some(file), Some(shell)) = (file.to_str(), account.shell.to_str()) else {
+        let Some(ReplayArguments { file, user, shell }) = self.arguments(block) else {
             return;
         };
         let argv = [
@@ -319,8 +311,8 @@ impl Replay {
             "-c",
             REPLAY_SCRIPT,
             "rex-resurrect",
-            file,
-            &account.user,
+            &file,
+            user,
             LOGIN_SHELL_EXEC,
             shell,
         ];
@@ -328,4 +320,26 @@ impl Replay {
         options.shell = Some("none".to_string());
         options.login = Some(false);
     }
+
+    /// What [`REPLAY_SCRIPT`] prints `block`'s scrollback with, as the text
+    /// its arguments must be. `None` if the block has no scrollback file
+    /// (any more), there's no account to start the shell as, or either path
+    /// isn't valid UTF-8.
+    fn arguments(&self, block: &SavedBlock) -> Option<ReplayArguments<'_>> {
+        let account = self.account.as_ref()?;
+        let file = self.store.file(block.scrollback.as_deref()?)?;
+        Some(ReplayArguments {
+            file: file.into_os_string().into_string().ok()?,
+            user: &account.user,
+            shell: account.shell.to_str()?,
+        })
+    }
+}
+
+/// [`REPLAY_SCRIPT`]'s arguments: the scrollback file, the user, and the
+/// login shell.
+struct ReplayArguments<'a> {
+    file: String,
+    user: &'a str,
+    shell: &'a str,
 }
