@@ -69,9 +69,11 @@ New shells pick it up. The recorder:
 #### The ignore list
 
 By default the recorder ignores `ls`, `ll`, `la`, `l`, `cd`, `pushd`, `popd`, `pwd`, `clear`,
-`reset` and `exit`. A command line is ignored when it runs one of these on its own, with any
-arguments: `ls -la` and `cd src` are ignored, but `cd src && make` is recorded. Commands are
-matched by name as you typed them, so an alias counts under its own name.
+`reset`, `exit` and `rex-resurrect` itself. A command line is ignored when it runs one of these
+on its own, with any arguments: `ls -la` and `cd src` are ignored, but `cd src && make` is
+recorded. Commands are matched by name as you typed them, so an alias counts under its own
+name, or by the last part of the path you typed: `/bin/ls` and `target/debug/rex-resurrect save`
+are ignored too.
 
 The list is the zsh array `REX_RESURRECT_IGNORE`. You don't have to set it. To change it, set it
 in `~/.zshrc`:
@@ -165,7 +167,8 @@ Set it where `save` sees it, and run `autosave install` again afterwards, so aut
 A block the recorder never recorded anything in, such as one whose shell started before you
 loaded the recorder, falls back to the program running in it at save time: `nvim`, a dev server
 or a nested shell comes back with its full command line typed at the prompt. Arguments come
-from `ps`, which drops their quoting. A block that was sitting at a prompt gets an empty prompt.
+from `ps`, which drops their quoting. A block that was sitting at a prompt, or running
+`rex-resurrect` itself (a `save` you ran there), gets an empty prompt.
 A block that restore created never falls back: restore records the last command it typed there,
 or that there was none, so a save that runs while the block's shell is still starting never
 mistakes the startup for a command.

@@ -79,7 +79,7 @@ _Avoid_: scheduled save, periodic save
 The hook in a shell block's outermost shell that records each command as it starts. Shells nested inside it (`nix develop`, `poetry shell`) don't record.
 
 **Ignored command**:
-A command the recorder doesn't record, leaving the previous last command in place: anything on the ignore list, and any multi-line command.
+A command the recorder doesn't record, leaving the previous last command in place: a command on the ignore list (by name, or by the last part of its path, as `/bin/ls`) run on its own, rex-resurrect itself by default, and any multi-line command.
 _Avoid_: skip list, skipped command
 
 **Last command**:

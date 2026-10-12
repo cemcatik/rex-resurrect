@@ -114,6 +114,28 @@ fn a_block_with_a_recorder_file_uses_the_recorded_command_whatever_is_in_its_for
     server.wait_for_typed(&restored, &blocks[1], recorded[1]);
 }
 
+/// A save run from a block is that block's foreground program while it
+/// saves. That's never what the block was doing.
+#[test]
+fn a_save_run_from_a_block_without_a_recorder_file_is_not_its_last_command() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let fixture = server.create_session("zz-self", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    let save = format!("{} save", common::resurrect::bin());
+    server.run(&fixture.id, block, &save);
+    server.wait_for_capture(&fixture.id, block, "the save's report", |c| {
+        c.contains("\nsaved 1 session(s)")
+    });
+
+    server.kill_session(&fixture.id);
+    env.restore(&server);
+
+    let restored = server.the_session_labelled("zz-self");
+    server.assert_empty_prompt(&restored, &server.block_ids(&restored)[0]);
+}
+
 #[test]
 fn a_block_without_a_recorder_file_sitting_at_a_prompt_restores_with_an_empty_prompt() {
     let env = TestEnv::new();
