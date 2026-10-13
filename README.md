@@ -377,9 +377,9 @@ rexurrect used to be called rex-resurrect. The rename is a clean break: rexurrec
 old name. It never reads the `REX_RESURRECT_*` settings, never looks in the old state directory
 and never removes the old autosave agent, so it picks up none of your old settings or state by
 itself (see [ADR-0002](docs/adr/0002-rename-to-rexurrect-as-a-clean-break.md)). These steps move
-an install over without losing your snapshots or lineage. Do them in order: until the old agent
-and `init.lua` line are gone, rex-resurrect keeps saving and restoring beside rexurrect, from its
-own state directory, and a server restart can bring your sessions back twice.
+an install over without losing your snapshots or lineage map. Do them in order: until the old
+agent and `init.lua` line are gone, rex-resurrect keeps saving and restoring beside rexurrect,
+from its own state directory, and a server restart can bring your sessions back twice.
 
 1. **Remove the old autosave agent**, while the old binary still exists:
 
@@ -400,7 +400,7 @@ own state directory, and a server restart can bring your sessions back twice.
    `auto-restore`, like
    `os.execute([[REX_RESURRECT_STATE_DIR='/Users/you/.local/state/rex-resurrect' '/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`.
 
-3. **Remove the old recorder.** Delete the line in `~/.zshrc` that sources
+3. **Remove the old recorder** by deleting the line in `~/.zshrc` that sources
    `rex-resurrect.plugin.zsh`, and the file itself. With oh-my-zsh, take `rex-resurrect` out of
    `plugins=(...)` and delete its directory:
 
@@ -410,7 +410,7 @@ own state directory, and a server restart can bring your sessions back twice.
 
    Shells already running keep the old recorder until step 8.
 
-4. **Uninstall the old binary:**
+4. **Uninstall the old binary**:
 
    ```sh
    cargo uninstall rex-resurrect
@@ -438,7 +438,7 @@ own state directory, and a server restart can bring your sessions back twice.
    mv ~/.local/state/rex-resurrect ~/.local/state/rexurrect
    ```
 
-   If `XDG_STATE_HOME` is set, move `$XDG_STATE_HOME/rex-resurrect` to
+   If `XDG_STATE_HOME` is set to an absolute path, move `$XDG_STATE_HOME/rex-resurrect` to
    `$XDG_STATE_HOME/rexurrect` instead (`rex-resurrect autosave uninstall` printed which).
    Skip this step if you set `REX_RESURRECT_STATE_DIR`: the `REXURRECT_STATE_DIR` you renamed
    it to names the same directory. Move it before step 7: once rexurrect runs, the new
@@ -448,13 +448,14 @@ own state directory, and a server restart can bring your sessions back twice.
    the rest. Only the log changes name. rexurrect starts `rexurrect.log` fresh, and you can keep,
    rename or delete the old `rex-resurrect.log`.
 
-   Skip this step and rexurrect starts with an empty state directory. There are no snapshots to
-   restore, so a server restart before rexurrect's first save brings nothing back. And there's no
-   lineage, so your live sessions look unrelated to every snapshot you had, and restoring one of
-   those recreates sessions that are already live
+   Skip this step and rexurrect starts with an empty state directory. It can't see the snapshots
+   you had, so a server restart before rexurrect's first save brings nothing back. Move the whole
+   directory: if `snapshots/` moves without `lineage.json`, there's no lineage map, so the live
+   sessions a restore created look unrelated to every snapshot you had, and restoring one of
+   those recreates them beside the live ones
    ([ADR-0001](docs/adr/0001-match-sessions-by-lineage-not-label.md)).
 
-7. **Set up rexurrect as a new user would.** Start from a new shell (a new Rex block, or
+7. **Set up rexurrect as a new user would**, starting from a new shell (a new Rex block, or
    `exec zsh`), so it sees the settings you renamed in step 5: `autosave install` and
    `auto-restore --print-hook` pin the state directory and settings they find. Then:
    - [install](#install) rexurrect;
@@ -463,18 +464,18 @@ own state directory, and a server restart can bring your sessions back twice.
    - turn on [auto-restore](#auto-restore) by appending `rexurrect auto-restore --print-hook`
      to `init.lua`, adding `REXURRECT_READY_TIMEOUT` to the line if you had it in the old one.
 
-8. **Move running shells onto the new recorder.** Shells that started before step 3 still run
-   the old one, which records into the old state directory. Either save, then restart the Rex
-   server, so auto-restore brings your sessions back from the moved state with new shells:
+8. **Move running shells onto the new recorder**, since shells that started before step 3 still
+   run the old one, which records into the old state directory. Either run `exec zsh` in each
+   block's outermost shell, or save and then restart the Rex server, so auto-restore brings your
+   sessions back from the moved state with new shells. To save before restarting, run:
 
    ```sh
    rexurrect save
    ```
 
-   or run `exec zsh` in each block's outermost shell. If you moved the state directory in step 6,
-   an old recorder that recorded a command in between may have recreated the old one, holding
-   only `recorder/`. Nothing reads it, so it's safe to delete once every shell is on the new
-   recorder.
+   If you moved the state directory in step 6, an old recorder that recorded a command in between
+   may have recreated the old one, holding only `recorder/`. Nothing reads it, so it's safe to
+   delete once every shell is on the new recorder.
 
 To check the upgrade worked:
 

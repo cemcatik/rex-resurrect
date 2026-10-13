@@ -23,8 +23,8 @@ pub struct Retention {
 }
 
 impl Retention {
-    /// `$REXURRECT_KEEP` snapshots, 10 if it's unset or empty. Anything
-    /// but a whole number of at least 1 is an error.
+    /// `$REXURRECT_KEEP` snapshots, 10 if it's unset or empty. Anything but a
+    /// whole number of at least 1 is an error.
     pub fn from_env() -> Result<Retention> {
         let Some(value) = settings::env_non_empty(KEEP_VAR) else {
             return Ok(Retention {

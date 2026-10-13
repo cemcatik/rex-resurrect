@@ -22,7 +22,7 @@ fn the_override_wins_over_xdg_state_home() {
     let (server, _) = server_with_fixture(&env, "zz-override");
     let xdg = env.mkdir("xdg-state");
 
-    env.resurrect(&server)
+    env.rexurrect(&server)
         .arg("save")
         .env("XDG_STATE_HOME", &xdg)
         .run()
@@ -41,7 +41,7 @@ fn without_the_override_state_lives_in_xdg_state_home() {
     let (server, fixture) = server_with_fixture(&env, "zz-xdg");
     let [xdg, other_xdg] = ["xdg-state", "other-xdg-state"].map(|name| env.mkdir(name));
     let run = |command: &str, xdg: &Path| {
-        env.resurrect(&server)
+        env.rexurrect(&server)
             .arg(command)
             .env_remove(STATE_DIR_VAR)
             .env("XDG_STATE_HOME", xdg)
@@ -72,7 +72,7 @@ fn without_xdg_state_home_state_lives_under_home() {
     let (server, _) = server_with_fixture(&env, "zz-home");
     let home = env.mkdir("home");
 
-    env.resurrect(&server)
+    env.rexurrect(&server)
         .arg("save")
         .env_remove(STATE_DIR_VAR)
         .env_remove("XDG_STATE_HOME")

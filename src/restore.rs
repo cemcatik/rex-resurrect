@@ -175,8 +175,8 @@ pub fn run(options: &RestoreOptions) -> Result<ExitCode> {
 }
 
 /// Restores into the server's current instance, the one `server` (its
-/// `server.status`, read under `lock`) names, unless rexurrect already
-/// has: `None` then. `save` runs this first; auto-restore, once the server is
+/// `server.status`, read under `lock`) names, unless rexurrect already has:
+/// `None` then. `save` runs this first; auto-restore, once the server is
 /// ready, needs nothing else.
 pub fn restore_unrestored_instance(
     rex: &Rex,

@@ -15,17 +15,17 @@ pub fn bin() -> &'static str {
 /// One `rexurrect` invocation, with the harness's scrubbed environment:
 /// `REX_SERVER` is the target server, the state directory override points at
 /// the test's temp dir, and `REX_BLOCK`/`REX_SESSION` are absent. Get one from
-/// [`super::TestEnv::resurrect`].
+/// [`super::TestEnv::rexurrect`].
 #[must_use]
-pub struct ResurrectCmd {
+pub struct RexurrectCmd {
     args: Vec<OsString>,
     env: BTreeMap<OsString, OsString>,
     path_prepend: Vec<PathBuf>,
 }
 
-impl ResurrectCmd {
+impl RexurrectCmd {
     pub(crate) fn new(env: BTreeMap<OsString, OsString>) -> Self {
-        ResurrectCmd {
+        RexurrectCmd {
             args: Vec::new(),
             env,
             path_prepend: Vec::new(),

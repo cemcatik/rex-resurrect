@@ -1,8 +1,8 @@
 //! Auto-restore: a line in Rex's init.lua (the hook) runs
-//! `rexurrect auto-restore`, which returns at once and, in the
-//! background, waits for the server that ran init.lua to be ready, then
-//! restores the latest snapshot into it, once per server instance. Results
-//! and failures go to the log.
+//! `rexurrect auto-restore`, which returns at once and, in the background,
+//! waits for the server that ran init.lua to be ready, then restores the
+//! latest snapshot into it, once per server instance. Results and failures go
+//! to the log.
 //!
 //! Each throwaway server is its own server instance, and servers started from
 //! one `TestEnv` share its state directory, so starting a server with the
@@ -19,7 +19,7 @@ use common::*;
 /// The init.lua line that turns auto-restore on, as the README has users
 /// add it: what `rexurrect auto-restore --print-hook` prints.
 fn hook(env: &TestEnv) -> String {
-    env.resurrect_at("unix:///tmp/rxt-none/s.sock")
+    env.rexurrect_at("unix:///tmp/rxt-none/s.sock")
         .args(["auto-restore", "--print-hook"])
         .run()
         .assert_success()
@@ -118,7 +118,7 @@ fn an_auto_restore_in_which_every_session_failed_does_not_count_as_restoring_the
     let entries = wait_for_auto_restores(&env, 2);
     assert!(entries[1].contains("1 failed"), "{entries:#?}");
 
-    let out = env.resurrect(&server).arg("save").run().assert_failure();
+    let out = env.rexurrect(&server).arg("save").run().assert_failure();
     assert!(out.stdout.contains("restored first"), "{out}");
 }
 
@@ -156,7 +156,7 @@ fn a_trigger_while_a_restore_is_running_creates_no_duplicates() {
     let server = env.start_server();
     let slow = common::stub::slow_rex(&env, "session.create", 0.5);
     let restore = env
-        .resurrect(&server)
+        .rexurrect(&server)
         .arg("restore")
         .path_prepend(&slow)
         .spawn();
@@ -233,10 +233,10 @@ fn the_background_restore_holds_none_of_the_servers_open_files() {
 #[test]
 fn the_printed_hook_restores_from_the_state_directory_it_was_printed_with() {
     let env = TestEnv::new();
-    // The user's shells: no REXURRECT_STATE_DIR, an XDG_STATE_HOME of
-    // their own.
+    // The user's shells: no REXURRECT_STATE_DIR, an XDG_STATE_HOME of their
+    // own.
     let xdg_state_home = env.root().join("user-xdg-state");
-    let users = |cmd: ResurrectCmd| {
+    let users = |cmd: RexurrectCmd| {
         cmd.env_remove(STATE_DIR_VAR)
             .env("XDG_STATE_HOME", &xdg_state_home)
     };
@@ -244,12 +244,12 @@ fn the_printed_hook_restores_from_the_state_directory_it_was_printed_with() {
         let before = env.start_server();
         let fixture = before.create_session("zz-proj", &[window(shell(env.mkdir("proj")))]);
         before.wait_for_pwds(&fixture);
-        users(env.resurrect(&before))
+        users(env.rexurrect(&before))
             .arg("save")
             .run()
             .assert_success();
     }
-    let printed = users(env.resurrect_at("unix:///tmp/rxt-none/s.sock"))
+    let printed = users(env.rexurrect_at("unix:///tmp/rxt-none/s.sock"))
         .args(["auto-restore", "--print-hook"])
         .run()
         .assert_success();

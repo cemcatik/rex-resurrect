@@ -161,8 +161,8 @@ fn an_ignored_command_leaves_the_previous_last_command_in_place() {
 }
 
 /// An ignore list entry matches the command as typed or the last part of
-/// its path, and rexurrect is on the list by default: running it is
-/// never what a block was doing.
+/// its path, and rexurrect is on the list by default: running it is never
+/// what a block was doing.
 #[test]
 fn rexurrect_and_ignored_commands_run_by_path_leave_the_previous_last_command_in_place() {
     let env = TestEnv::with_recorder();
@@ -179,7 +179,7 @@ fn rexurrect_and_ignored_commands_run_by_path_leave_the_previous_last_command_in
     server.run(
         &fixture.id,
         block,
-        &format!("{} list", common::resurrect::bin()),
+        &format!("{} list", common::rexurrect::bin()),
     );
     server.wait_for_capture(&fixture.id, block, "rexurrect's list", |c| {
         c.contains("\nno snapshots yet")

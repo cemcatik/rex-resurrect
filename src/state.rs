@@ -1,6 +1,6 @@
-//! rexurrect's state directory: snapshots, the lineage map and anything
-//! else rexurrect has to remember between runs, and the file operations
-//! every module uses on it.
+//! rexurrect's state directory: snapshots, the lineage map and anything else
+//! rexurrect has to remember between runs, and the file operations every
+//! module uses on it.
 //!
 //! Location, first match wins:
 //! 1. `$REXURRECT_STATE_DIR`

@@ -22,7 +22,7 @@ fn save_and_restore_fail_without_starting_a_server_when_none_is_running() {
 
     for command in ["save", "restore"] {
         let out = env
-            .resurrect_at(&endpoint)
+            .rexurrect_at(&endpoint)
             .arg(command)
             .env("HOME", &home)
             .run();

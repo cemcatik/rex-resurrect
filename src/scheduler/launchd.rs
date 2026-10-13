@@ -5,9 +5,8 @@
 //! - `launchctl` is found on `PATH`, and `$REXURRECT_LAUNCH_AGENTS_DIR`
 //!   replaces `~/Library/LaunchAgents`, so tests can install and uninstall
 //!   with a stand-in `launchctl` and never touch the real launchd;
-//! - `$REXURRECT_AUTOSAVE_LABEL` replaces the agent's label, so a
-//!   scratch agent tried out on the real launchd stays apart from the
-//!   user's own.
+//! - `$REXURRECT_AUTOSAVE_LABEL` replaces the agent's label, so a scratch
+//!   agent tried out on the real launchd stays apart from the user's own.
 
 use std::fs;
 use std::path::{Path, PathBuf};

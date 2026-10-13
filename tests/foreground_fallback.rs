@@ -219,7 +219,7 @@ fn a_save_run_from_a_block_without_a_recorder_file_is_not_its_last_command() {
     let fixture = server.create_session("zz-self", &[window(shell(env.mkdir("a")))]);
     server.wait_for_pwds(&fixture);
     let block = fixture.block_ids()[0];
-    let save = format!("{} save", common::resurrect::bin());
+    let save = format!("{} save", common::rexurrect::bin());
     server.run(&fixture.id, block, &save);
     server.wait_for_capture(&fixture.id, block, "the save's report", |c| {
         c.contains("\nsaved 1 session(s)")

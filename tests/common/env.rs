@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use super::resurrect::ResurrectCmd;
+use super::rexurrect::RexurrectCmd;
 use super::server::{Server, ServerBuilder};
 use super::tempdir::TempDir;
 use super::zsh::{self, ZshConfig};
@@ -53,8 +53,8 @@ impl TestEnvBuilder {
     }
 
     /// Gives every throwaway server (and so every block shell) and every
-    /// `rexurrect` run [`TestEnv::home`] as `HOME` instead of the user's
-    /// own. A block created without a `cwd` starts there.
+    /// `rexurrect` run [`TestEnv::home`] as `HOME` instead of the user's own.
+    /// A block created without a `cwd` starts there.
     pub fn own_home(mut self) -> Self {
         self.own_home = true;
         self
@@ -181,16 +181,16 @@ impl TestEnv {
     }
 
     /// A `rexurrect` invocation aimed at `server`.
-    pub fn resurrect(&self, server: &Server) -> ResurrectCmd {
-        self.resurrect_at(server.endpoint())
+    pub fn rexurrect(&self, server: &Server) -> RexurrectCmd {
+        self.rexurrect_at(server.endpoint())
     }
 
     /// A `rexurrect` invocation aimed at an arbitrary endpoint (e.g. one
     /// where no server listens).
-    pub fn resurrect_at(&self, endpoint: &str) -> ResurrectCmd {
+    pub fn rexurrect_at(&self, endpoint: &str) -> RexurrectCmd {
         let mut env = self.child_env();
         env.insert("REX_SERVER".into(), endpoint.into());
-        ResurrectCmd::new(env)
+        RexurrectCmd::new(env)
     }
 
     /// The pid of a Rex server answering at `endpoint`, if any.
@@ -237,18 +237,18 @@ impl TestEnv {
     }
 
     /// Runs `rexurrect save` against `server` and asserts it succeeded.
-    pub fn save(&self, server: &Server) -> super::resurrect::RunOutput {
-        self.resurrect(server).arg("save").run().assert_success()
+    pub fn save(&self, server: &Server) -> super::rexurrect::RunOutput {
+        self.rexurrect(server).arg("save").run().assert_success()
     }
 
     /// Runs `rexurrect restore` against `server` and asserts it succeeded.
-    pub fn restore(&self, server: &Server) -> super::resurrect::RunOutput {
-        self.resurrect(server).arg("restore").run().assert_success()
+    pub fn restore(&self, server: &Server) -> super::rexurrect::RunOutput {
+        self.rexurrect(server).arg("restore").run().assert_success()
     }
 
     /// What `rexurrect list` prints: one line per snapshot.
     pub fn listed(&self, server: &Server) -> String {
-        self.resurrect(server)
+        self.rexurrect(server)
             .arg("list")
             .run()
             .assert_success()
@@ -277,8 +277,8 @@ impl TestEnv {
     }
 
     /// The scrubbed environment shared by throwaway servers (and so every
-    /// block shell) and `rexurrect` subprocesses. `REX_SERVER` is added
-    /// per server.
+    /// block shell) and `rexurrect` subprocesses. `REX_SERVER` is added per
+    /// server.
     ///
     /// `XDG_RUNTIME_DIR` matters for safety: `rex` falls back to
     /// `$XDG_RUNTIME_DIR/rex/server.sock` (or, without it, the real server's

@@ -67,7 +67,7 @@ fn a_save_that_fails_to_write_its_snapshot_removes_no_recorder_files() {
     // A file where the snapshots directory goes: writing the snapshot fails.
     std::fs::write(env.state_dir().join("snapshots"), "").unwrap();
 
-    env.resurrect(&server).arg("save").run().assert_failure();
+    env.rexurrect(&server).arg("save").run().assert_failure();
     assert!(recorder_file(&env, &gone_block).exists());
 }
 
@@ -117,7 +117,7 @@ fn a_recorder_file_written_while_a_save_runs_is_kept() {
     let stub = stub_rex_recording_after_session_list(&env, &new_block);
 
     let out = env
-        .resurrect(&server)
+        .rexurrect(&server)
         .path_prepend(stub.dir())
         .arg("save")
         .run()
@@ -172,8 +172,8 @@ fn a_save_removes_temporary_files_left_by_crashed_writes_once_they_are_stale() {
     env.save(&server);
     // A recorder's temporary files (named `.…` by the recorder-file
     // contract; the zsh recorder's are `.<block ID>.<pid>`), and the ones
-    // rexurrect writes its own files through (`.<name>.<pid>.tmp`, next
-    // to the file).
+    // rexurrect writes its own files through (`.<name>.<pid>.tmp`, next to
+    // the file).
     let temporary = |name: &str| {
         [
             recorder_file(&env, &format!(".block:zz-{name}.4242")),

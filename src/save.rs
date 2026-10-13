@@ -46,8 +46,8 @@ pub enum Saved {
     EmptyServer,
 }
 
-/// Restores first if rexurrect hasn't restored into this server instance
-/// yet, so that a save on a freshly started server can't replace the latest
+/// Restores first if rexurrect hasn't restored into this server instance yet,
+/// so that a save on a freshly started server can't replace the latest
 /// snapshot with a near-empty one. The blocks that restore created are
 /// saved as it created them, like those of any restore in its startup
 /// window: their shells are still starting. Still saves if some sessions
