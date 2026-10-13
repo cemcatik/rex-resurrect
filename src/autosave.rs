@@ -1,4 +1,4 @@
-//! `rex-resurrect autosave install|uninstall`: run `save` on a timer.
+//! `rexurrect autosave install|uninstall`: run `save` on a timer.
 //!
 //! The scheduler (launchd today) is behind [`crate::scheduler::Scheduler`].
 

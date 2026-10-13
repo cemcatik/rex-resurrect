@@ -1,5 +1,5 @@
 //! Auto-restore: a line in Rex's init.lua (the hook) runs
-//! `rex-resurrect auto-restore`, which returns at once and, in the
+//! `rexurrect auto-restore`, which returns at once and, in the
 //! background, waits for the server that ran init.lua to be ready, then
 //! restores the latest snapshot into it, once per server instance. Results
 //! and failures go to the log.
@@ -17,7 +17,7 @@ use common::server::wait_for;
 use common::*;
 
 /// The init.lua line that turns auto-restore on, as the README has users
-/// add it: what `rex-resurrect auto-restore --print-hook` prints.
+/// add it: what `rexurrect auto-restore --print-hook` prints.
 fn hook(env: &TestEnv) -> String {
     env.resurrect_at("unix:///tmp/rxt-none/s.sock")
         .args(["auto-restore", "--print-hook"])

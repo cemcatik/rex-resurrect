@@ -1,4 +1,4 @@
-//! Where rex-resurrect keeps its state: `$REXURRECT_STATE_DIR`, else
+//! Where rexurrect keeps its state: `$REXURRECT_STATE_DIR`, else
 //! `$XDG_STATE_HOME/rexurrect`, else `~/.local/state/rexurrect`.
 
 mod common;

@@ -1,4 +1,4 @@
-//! rex-resurrect never starts a Rex server as a side effect.
+//! rexurrect never starts a Rex server as a side effect.
 
 mod common;
 

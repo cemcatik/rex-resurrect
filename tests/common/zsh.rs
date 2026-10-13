@@ -24,7 +24,7 @@ pub fn quote(path: &Path) -> String {
 /// - an OSC 7 report before each prompt, so the terminal `pwd` method
 ///   answers about 0.2 s after a block starts. Rex doesn't inject shell
 ///   integration itself: without this, `pwd` stays `{}` forever.
-const BASE_ZSHRC: &str = r#"# rex-resurrect test harness: minimal zsh for fixture blocks.
+const BASE_ZSHRC: &str = r#"# rexurrect test harness: minimal zsh for fixture blocks.
 unset HISTFILE
 SAVEHIST=0
 PROMPT='%~ %# '

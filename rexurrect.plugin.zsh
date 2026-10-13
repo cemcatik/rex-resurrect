@@ -1,7 +1,7 @@
-# rexurrect.plugin.zsh: the rex-resurrect recorder for zsh.
+# rexurrect.plugin.zsh: the rexurrect recorder for zsh.
 #
 # Records each command a Rex block's shell starts as that block's last
-# command. After the Rex server restarts, `rex-resurrect restore` types it
+# command. After the Rex server restarts, `rexurrect restore` types it
 # back at the block's prompt, never running it.
 #
 # Load it from ~/.zshrc, either way:
@@ -24,7 +24,7 @@
 #   character, keeping the previous record: typed back at a prompt, a line
 #   break would act as Enter.
 # - Ignores the trivial commands on the ignore list, REXURRECT_IGNORE,
-#   and rex-resurrect itself, keeping the previous record, so the restored
+#   and rexurrect itself, keeping the previous record, so the restored
 #   prompt shows the last meaningful command. A command line is ignored when
 #   it runs one command alone, whatever its arguments, and that command's
 #   name (as typed, or the last part of the path typed) is on the list:
@@ -40,10 +40,10 @@
 #   stays right with SHARE_HISTORY or per-directory history.
 #
 # Recorder files, the contract between recorders (whatever their shell) and
-# rex-resurrect:
-# - Only recorders write them. rex-resurrect reads them, and removes those
+# rexurrect:
+# - Only recorders write them. rexurrect reads them, and removes those
 #   of blocks that are gone, but never writes one. A block's record beats
-#   anything else rex-resurrect knows about the block (the program in its
+#   anything else rexurrect knows about the block (the program in its
 #   foreground, what restore typed at its prompt).
 # - Path: <state dir>/recorder/<block ID>, the block ID exactly as REX_BLOCK
 #   holds it (recorder/block:01a129c9-08f8-74b3-b44a-5573c12596b0).
@@ -52,7 +52,7 @@
 #   $HOME/.local/state/rexurrect.
 # - Contents: the block's last command, UTF-8 text on one line, ending in a
 #   newline (readers accept it without one). Only the latest is kept.
-# - An empty line records that the block has no last command: rex-resurrect
+# - An empty line records that the block has no last command: rexurrect
 #   then doesn't fall back to the program in its foreground either (that
 #   fallback is only for blocks with no file at all). This recorder never
 #   writes one: it only records commands.

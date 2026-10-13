@@ -1,4 +1,4 @@
-//! Autosave: `rex-resurrect autosave install` puts a launchd user agent in
+//! Autosave: `rexurrect autosave install` puts a launchd user agent in
 //! place that runs `save` on a timer, and `autosave uninstall` removes it.
 //!
 //! launchd itself isn't exercised. Install and uninstall run with their
@@ -84,7 +84,7 @@ impl FakeLaunchd {
 fn launchctl_script(dir: &Path) -> String {
     format!(
         r#"#!/bin/sh
-# Stand-in launchctl (rex-resurrect test harness).
+# Stand-in launchctl (rexurrect test harness).
 state='{dir}'
 printf '%s\n' "$*" >> "$state/calls"
 case "$1" in

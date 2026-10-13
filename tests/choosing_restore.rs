@@ -5,7 +5,7 @@ mod common;
 
 use common::*;
 
-/// One line of `rex-resurrect list`.
+/// One line of `rexurrect list`.
 #[derive(Debug)]
 struct Listed {
     id: String,
@@ -13,7 +13,7 @@ struct Listed {
     labels: Vec<String>,
 }
 
-/// Runs `rex-resurrect list` and parses its lines: `<id>  <time>  <labels>`.
+/// Runs `rexurrect list` and parses its lines: `<id>  <time>  <labels>`.
 fn list(env: &TestEnv, server: &Server) -> Vec<Listed> {
     let out = env.resurrect(server).arg("list").run().assert_success();
     out.stdout

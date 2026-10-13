@@ -228,7 +228,7 @@ fn scrollback_is_private_and_kept_only_as_long_as_its_snapshot() {
     let fixture = server.create_session("zz-kept", &[window(shell(env.mkdir("a")))]);
     server.wait_for_pwds(&fixture);
     let block = fixture.block_ids()[0];
-    // Enough scrollback to dwarf everything else rex-resurrect keeps.
+    // Enough scrollback to dwarf everything else rexurrect keeps.
     server.run(&fixture.id, block, "seq 1 20000");
     server.wait_for_capture(&fixture.id, block, "the whole sequence", |c| {
         c.contains("\n20000\n")
@@ -267,7 +267,7 @@ fn scrollback_is_private_and_kept_only_as_long_as_its_snapshot() {
 
 #[test]
 fn an_untouched_sessions_scrollback_is_not_kept() {
-    // No recorder, and rex-resurrect's home is the untouched session's
+    // No recorder, and rexurrect's home is the untouched session's
     // directory: after `seq` it has no last command and is still at home.
     let env = TestEnv::new();
     let server = env.start_server();

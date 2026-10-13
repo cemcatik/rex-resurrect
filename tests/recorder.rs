@@ -161,10 +161,10 @@ fn an_ignored_command_leaves_the_previous_last_command_in_place() {
 }
 
 /// An ignore list entry matches the command as typed or the last part of
-/// its path, and rex-resurrect is on the list by default: running it is
+/// its path, and rexurrect is on the list by default: running it is
 /// never what a block was doing.
 #[test]
-fn rex_resurrect_and_ignored_commands_run_by_path_leave_the_previous_last_command_in_place() {
+fn rexurrect_and_ignored_commands_run_by_path_leave_the_previous_last_command_in_place() {
     let env = TestEnv::with_recorder();
     let server = env.start_server();
     let a = env.mkdir("a");

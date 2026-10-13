@@ -1,6 +1,6 @@
 //! Test harness shared by every integration test.
 //!
-//! Tests drive the built `rex-resurrect` binary against a throwaway Rex
+//! Tests drive the built `rexurrect` binary against a throwaway Rex
 //! server and assert only on what Rex reports (`session.view`, `pwd`,
 //! `rex capture`), never on the snapshot file's format.
 //!

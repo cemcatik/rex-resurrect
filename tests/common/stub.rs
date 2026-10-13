@@ -158,7 +158,7 @@ fn matching(method: &str, input_contains: &[&str]) -> Matching {
 fn stub_script(rules: &[Rule], real_rex: &Path) -> String {
     let mut script = format!(
         r#"#!/bin/sh
-# Stub rex (rex-resurrect test harness): rules for chosen `api call`
+# Stub rex (rexurrect test harness): rules for chosen `api call`
 # invocations, everything else handed to the real rex.
 real={real_rex}
 method=

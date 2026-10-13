@@ -1,4 +1,4 @@
-//! rex-resurrect's log: `rexurrect.log` in the state directory.
+//! rexurrect's log: `rexurrect.log` in the state directory.
 //!
 //! `save` and `restore` append their failures here, one timestamped line
 //! each, so a failed autosave, which nobody watches, can still be diagnosed.

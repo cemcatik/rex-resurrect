@@ -1,4 +1,4 @@
-//! When Rex's output doesn't have the shape rex-resurrect expects, or fails
+//! When Rex's output doesn't have the shape rexurrect expects, or fails
 //! validation, `save` fails loudly, names what didn't match and writes
 //! nothing: a changed beta API never produces an empty or broken snapshot.
 //!

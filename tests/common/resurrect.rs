@@ -1,4 +1,4 @@
-//! Running the built `rex-resurrect` binary.
+//! Running the built `rexurrect` binary.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -12,7 +12,7 @@ pub fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_rexurrect")
 }
 
-/// One `rex-resurrect` invocation, with the harness's scrubbed environment:
+/// One `rexurrect` invocation, with the harness's scrubbed environment:
 /// `REX_SERVER` is the target server, the state directory override points at
 /// the test's temp dir, and `REX_BLOCK`/`REX_SESSION` are absent. Get one from
 /// [`super::TestEnv::resurrect`].
@@ -87,7 +87,7 @@ impl ResurrectCmd {
     }
 }
 
-/// A `rex-resurrect` run that may still be going. [`Running::wait`] for it.
+/// A `rexurrect` run that may still be going. [`Running::wait`] for it.
 /// Dropped without waiting (its test panicked), it kills the run, so the run
 /// can't outlive the test's temp dir and recreate files in it.
 #[must_use]
@@ -118,7 +118,7 @@ impl Drop for Running {
     }
 }
 
-/// What a `rex-resurrect` run printed and how it exited.
+/// What a `rexurrect` run printed and how it exited.
 #[derive(Debug)]
 pub struct RunOutput {
     pub command: String,

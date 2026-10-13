@@ -1,4 +1,4 @@
-//! rex-resurrect: save Rex sessions and recreate them after the Rex server
+//! rexurrect: save Rex sessions and recreate them after the Rex server
 //! stops. Talks to Rex only through the `rex` CLI (see `rex`).
 
 mod account;

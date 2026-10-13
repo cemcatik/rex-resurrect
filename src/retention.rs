@@ -1,4 +1,4 @@
-//! Retention: how many snapshots rex-resurrect keeps.
+//! Retention: how many snapshots rexurrect keeps.
 //!
 //! [`Retention::prune`] works on any directory whose entries are named so
 //! that they sort in time order ([`crate::timestamp::Timestamp::compact`]),

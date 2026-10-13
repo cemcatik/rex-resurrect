@@ -1,4 +1,4 @@
-//! `rex-resurrect auto-restore`: what the line in Rex's init.lua runs.
+//! `rexurrect auto-restore`: what the line in Rex's init.lua runs.
 //!
 //! The Rex server runs init.lua in its own process at every start, and
 //! answers no request until init.lua returns. It runs init.lua again on every
@@ -7,7 +7,7 @@
 //! aimed at that server (`--server-pid`), and returns.
 //!
 //! The background run waits for the server to be ready, then restores into
-//! it unless rex-resurrect already has: once per server instance, so a config
+//! it unless rexurrect already has: once per server instance, so a config
 //! reload restores nothing. It logs the outcome either way, since nobody
 //! sees its output.
 //!
@@ -64,11 +64,11 @@ pub fn run(options: &AutoRestoreOptions) -> Result<ExitCode> {
 }
 
 /// The line that turns auto-restore on in init.lua:
-/// `os.execute([[REXURRECT_STATE_DIR='<state dir>' '<rex-resurrect>' auto-restore]])`.
+/// `os.execute([[REXURRECT_STATE_DIR='<state dir>' '<rexurrect>' auto-restore]])`.
 ///
 /// Both are pinned as they are here. The server runs init.lua in its own
 /// environment, not the user's shell's: the Rex app starts it with a bare
-/// `PATH`, so `rex-resurrect` needs its full path, and with no `XDG_*`, so
+/// `PATH`, so `rexurrect` needs its full path, and with no `XDG_*`, so
 /// auto-restore could otherwise pick a different state directory from the
 /// user's shells and their recorder.
 fn hook() -> Result<String> {

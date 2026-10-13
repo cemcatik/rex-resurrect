@@ -12,7 +12,7 @@ use common::*;
 
 const KEEP_VAR: &str = "REXURRECT_KEEP";
 
-/// The snapshots `rex-resurrect list` shows, newest first, each as its
+/// The snapshots `rexurrect list` shows, newest first, each as its
 /// session labels (`zz-1, zz-2`).
 fn listed_labels(env: &TestEnv, server: &Server) -> Vec<String> {
     let out = env.resurrect(server).arg("list").run().assert_success();

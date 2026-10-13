@@ -92,7 +92,7 @@ fn a_command_restore_typed_carries_forward_while_the_block_sits_at_its_prompt() 
 }
 
 /// The last program seen carries forward in a block restore never touched,
-/// too: rex-resurrect treats every block alike, whether or not it has been
+/// too: rexurrect treats every block alike, whether or not it has been
 /// through a restart.
 #[test]
 fn a_program_seen_in_a_block_without_a_recorder_file_carries_forward_after_it_exits() {

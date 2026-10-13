@@ -1,5 +1,5 @@
-//! rex-resurrect's state directory: snapshots, the lineage map and anything
-//! else rex-resurrect has to remember between runs, and the file operations
+//! rexurrect's state directory: snapshots, the lineage map and anything
+//! else rexurrect has to remember between runs, and the file operations
 //! every module uses on it.
 //!
 //! Location, first match wins:
@@ -281,7 +281,7 @@ mod tests {
     /// it: a recorder renames its own over a record at every command.
     #[test]
     fn a_temporary_file_that_has_already_gone_is_nothing_to_remove() {
-        let gone = Path::new("/nonexistent-rex-resurrect-dir/.record.123.tmp");
+        let gone = Path::new("/nonexistent-rexurrect-dir/.record.123.tmp");
         let removed = remove_if_unchanged_since(gone, SystemTime::now());
         assert!(removed.is_ok(), "{}", removed.unwrap_err());
     }

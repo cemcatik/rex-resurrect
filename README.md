@@ -1,9 +1,9 @@
-# rex-resurrect
+# rexurrect
 
 Save your Rex sessions and recreate them after the Rex server stops: after a
 crash, a beta update that needs a restart, or a reboot. Like tmux-resurrect, for Rex.
 
-rex-resurrect is a single self-contained binary. It talks to Rex only through the `rex` CLI and
+rexurrect is a single self-contained binary. It talks to Rex only through the `rex` CLI and
 needs nothing else at runtime.
 
 > **Status:** early. `save` and `restore` bring back each session's label, its windows in order,
@@ -117,7 +117,7 @@ rexurrect list      # list the snapshots, newest first
   - If there's nothing to save (no sessions, or only untouched sessions or sessions with no
     windows left), `save` writes nothing, leaves `latest.json` alone and exits 0, so a server
     with nothing on it never replaces your latest snapshot.
-  - If Rex's output doesn't have the shape rex-resurrect expects (Rex is in beta and its API
+  - If Rex's output doesn't have the shape rexurrect expects (Rex is in beta and its API
     can change) or the snapshot fails validation (every session needs a window, every split
     ratio must be between 0 and 1), `save` writes nothing, exits non-zero and says what didn't
     match.
@@ -173,7 +173,7 @@ and block; later saves don't repeat it while it stays too large. Clearing the bl
 (Cmd-K) lets the next save keep it again.
 
 Without the recorder (you don't use zsh, or skipped that step), or in a block whose shell
-started before you loaded it, rex-resurrect falls back to the program running in the block at
+started before you loaded it, rexurrect falls back to the program running in the block at
 save time: `nvim`, a dev server or a nested shell comes back with its full command line typed at
 the prompt. Arguments come from `ps`, which drops their quoting. The save also remembers that
 program as the block's last command, so it still comes back after the program exits and the
@@ -218,7 +218,7 @@ message gives, `rexurrect restore --snapshot <id>`, before the next save (an aut
 within 15 minutes) replaces `latest.json`; the snapshot itself stays in `list` until retention
 removes it. If only some sessions fail, the save goes ahead and still exits non-zero.
 
-rex-resurrect never starts a Rex server. If Rex isn't running, `save` and `restore` fail and
+rexurrect never starts a Rex server. If Rex isn't running, `save` and `restore` fail and
 say so.
 
 Every failure of `save` or `restore`, including each session that fails to restore, is also
@@ -235,7 +235,7 @@ Autosave saves the server `autosave install` names (see [Autosave](#autosave)).
 
 ### Where state lives
 
-Snapshots and rex-resurrect's own bookkeeping live in its state directory:
+Snapshots and rexurrect's own bookkeeping live in its state directory:
 
 1. `$REXURRECT_STATE_DIR`, if set;
 2. otherwise `$XDG_STATE_HOME/rexurrect`;
@@ -258,13 +258,13 @@ which goes when its snapshot goes (or two minutes after a restore from it, if th
 block with 50,000 lines of output takes about 340 KB per snapshot. `rexurrect.log` is the log of
 failures, auto-restore outcomes and blocks saved without scrollback because it was too large.
 The recorder finds the state directory the same way, so set `REXURRECT_STATE_DIR` (if you
-use it) where both your shells and rex-resurrect see it.
+use it) where both your shells and rexurrect see it.
 Autosave and auto-restore run outside your shells, so `autosave install` and
 `auto-restore --print-hook` pin the state directory they resolve.
 
 Snapshots, scrollback, recorder files, `default-commands.json` and `starting-sessions.json` hold
 commands, and commands can hold secrets, so the state directory is readable by you only: `save` and `restore` make it `0700` if it isn't.
-rex-resurrect writes its own files with mode `0600`, and the recorder keeps its files in a
+rexurrect writes its own files with mode `0600`, and the recorder keeps its files in a
 `0700` directory. Every file except the log is written atomically (a temporary file, then a
 rename), so a crash never leaves a partial snapshot or record behind; the log is appended to.
 A temporary file that a crash does leave behind is removed by the next save that writes a
@@ -364,7 +364,7 @@ until `init.lua` has finished, and carries on in the background:
 `rex config check` runs `init.lua` too. There auto-restore says it wasn't started by a Rex server
 and does nothing. Any other Rex server that reads the same `init.lua` (one you start by hand with
 `rex server run` and no `--config`, say) gets your sessions restored into it too. That doesn't
-make your own server look unrestored: rex-resurrect remembers every recent server instance it
+make your own server look unrestored: rexurrect remembers every recent server instance it
 restored into, not just the last.
 
 If auto-restore can't tell which endpoint is the server's (one containing a space that isn't

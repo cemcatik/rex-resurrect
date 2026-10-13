@@ -23,7 +23,7 @@ const INHERITED_VARS: &[&str] = &[
 /// Variable the binary reads for its state directory override.
 pub const STATE_DIR_VAR: &str = "REXURRECT_STATE_DIR";
 
-/// One test's isolated world: a short temp directory holding rex-resurrect's
+/// One test's isolated world: a short temp directory holding rexurrect's
 /// state directory, the harness `ZDOTDIR`, scratch directories for fixture
 /// blocks, and one directory per throwaway server started from it.
 ///
@@ -53,7 +53,7 @@ impl TestEnvBuilder {
     }
 
     /// Gives every throwaway server (and so every block shell) and every
-    /// `rex-resurrect` run [`TestEnv::home`] as `HOME` instead of the user's
+    /// `rexurrect` run [`TestEnv::home`] as `HOME` instead of the user's
     /// own. A block created without a `cwd` starts there.
     pub fn own_home(mut self) -> Self {
         self.own_home = true;
@@ -105,14 +105,14 @@ impl TestEnv {
         self.root.path()
     }
 
-    /// rex-resurrect's state directory for this test (passed through
+    /// rexurrect's state directory for this test (passed through
     /// [`STATE_DIR_VAR`] to the binary and to every block shell).
     pub fn state_dir(&self) -> PathBuf {
         self.root().join("state")
     }
 
     /// Writes a block's recorder file the way any recorder would (the format
-    /// recorders share with rex-resurrect: `recorder/<block ID>` in the state
+    /// recorders share with rexurrect: `recorder/<block ID>` in the state
     /// directory, holding the command and a newline). For playing a recorder
     /// that records what the zsh one wouldn't.
     pub fn write_recorder_file(&self, block_id: &str, command: &str) {
@@ -126,7 +126,7 @@ impl TestEnv {
     /// they are, not as restore created them.
     ///
     /// The window is too long to wait out, so this is the one place tests
-    /// reach inside rex-resurrect's own state: it moves each session's
+    /// reach inside rexurrect's own state: it moves each session's
     /// `restored_at` in `starting-sessions.json` far into the past.
     pub fn end_startup_windows(&self) {
         let path = self.state_dir().join("starting-sessions.json");
@@ -139,7 +139,7 @@ impl TestEnv {
         std::fs::write(&path, sessions.to_string()).unwrap();
     }
 
-    /// The entries in rex-resurrect's log (`rexurrect.log` in the state
+    /// The entries in rexurrect's log (`rexurrect.log` in the state
     /// directory), oldest first; none if there's no log yet.
     pub fn log_entries(&self) -> Vec<String> {
         match std::fs::read_to_string(self.state_dir().join("rexurrect.log")) {
@@ -180,12 +180,12 @@ impl TestEnv {
         self.server().start()
     }
 
-    /// A `rex-resurrect` invocation aimed at `server`.
+    /// A `rexurrect` invocation aimed at `server`.
     pub fn resurrect(&self, server: &Server) -> ResurrectCmd {
         self.resurrect_at(server.endpoint())
     }
 
-    /// A `rex-resurrect` invocation aimed at an arbitrary endpoint (e.g. one
+    /// A `rexurrect` invocation aimed at an arbitrary endpoint (e.g. one
     /// where no server listens).
     pub fn resurrect_at(&self, endpoint: &str) -> ResurrectCmd {
         let mut env = self.child_env();
@@ -236,17 +236,17 @@ impl TestEnv {
         child.wait().unwrap();
     }
 
-    /// Runs `rex-resurrect save` against `server` and asserts it succeeded.
+    /// Runs `rexurrect save` against `server` and asserts it succeeded.
     pub fn save(&self, server: &Server) -> super::resurrect::RunOutput {
         self.resurrect(server).arg("save").run().assert_success()
     }
 
-    /// Runs `rex-resurrect restore` against `server` and asserts it succeeded.
+    /// Runs `rexurrect restore` against `server` and asserts it succeeded.
     pub fn restore(&self, server: &Server) -> super::resurrect::RunOutput {
         self.resurrect(server).arg("restore").run().assert_success()
     }
 
-    /// What `rex-resurrect list` prints: one line per snapshot.
+    /// What `rexurrect list` prints: one line per snapshot.
     pub fn listed(&self, server: &Server) -> String {
         self.resurrect(server)
             .arg("list")
@@ -277,7 +277,7 @@ impl TestEnv {
     }
 
     /// The scrubbed environment shared by throwaway servers (and so every
-    /// block shell) and `rex-resurrect` subprocesses. `REX_SERVER` is added
+    /// block shell) and `rexurrect` subprocesses. `REX_SERVER` is added
     /// per server.
     ///
     /// `XDG_RUNTIME_DIR` matters for safety: `rex` falls back to
