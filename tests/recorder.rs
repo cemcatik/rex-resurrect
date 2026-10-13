@@ -181,7 +181,7 @@ fn rex_resurrect_and_ignored_commands_run_by_path_leave_the_previous_last_comman
         block,
         &format!("{} list", common::resurrect::bin()),
     );
-    server.wait_for_capture(&fixture.id, block, "rex-resurrect's list", |c| {
+    server.wait_for_capture(&fixture.id, block, "rexurrect's list", |c| {
         c.contains("\nno snapshots yet")
     });
     server.run(&fixture.id, block, "/bin/ls");

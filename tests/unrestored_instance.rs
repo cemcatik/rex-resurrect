@@ -256,7 +256,7 @@ fn a_save_whose_restore_first_fails_for_every_session_saves_nothing_and_the_next
     let server = a_server_that_cant_restore_anything(&env);
     let snapshots = env.listed(&server);
     let id = snapshots.split("  ").next().unwrap().to_string();
-    let retry = format!("rex-resurrect restore --snapshot {id}");
+    let retry = format!("rexurrect restore --snapshot {id}");
 
     let out = env.resurrect(&server).arg("save").run().assert_failure();
     assert!(out.stdout.contains("restored first"), "{out}");

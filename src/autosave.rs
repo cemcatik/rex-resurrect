@@ -45,7 +45,7 @@ pub fn run(command: &AutosaveCommand) -> Result<ExitCode> {
 }
 
 fn install(options: &InstallOptions) -> Result<ExitCode> {
-    let program = std::env::current_exe().with_context(|| "finding rex-resurrect's own path")?;
+    let program = std::env::current_exe().with_context(|| "finding rexurrect's own path")?;
     let state = StateDir::from_env()?;
     let job = Job {
         program: utf8(program.as_os_str())?,
@@ -56,7 +56,7 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
     let scheduler = scheduler::for_this_platform()?;
     scheduler.install(&job)?;
     println!(
-        "autosave installed: `rex-resurrect save` runs every {} as the {}\n\
+        "autosave installed: `rexurrect save` runs every {} as the {}\n\
          - server: {}\n\
          - state:  {}\n\
          - log:    {} (failures, and blocks whose scrollback was too large to save)\n\

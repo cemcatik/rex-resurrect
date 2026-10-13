@@ -18,10 +18,10 @@ needs nothing else at runtime.
 With a [Rust toolchain](https://rustup.rs) installed:
 
 ```sh
-cargo install --git https://github.com/cemcatik/rex-resurrect
+cargo install --git https://github.com/cemcatik/rexurrect
 ```
 
-That builds `rex-resurrect` and puts it in `~/.cargo/bin`, which rustup adds to your `PATH`.
+That builds `rexurrect` and puts it in `~/.cargo/bin`, which rustup adds to your `PATH`.
 The `rex` CLI that ships with Rex must be on your `PATH` too (it is inside Rex blocks).
 
 To get last commands back, also load the zsh recorder (next section).
@@ -69,10 +69,10 @@ New shells pick it up. The recorder:
 #### The ignore list
 
 By default the recorder ignores `ls`, `ll`, `la`, `l`, `cd`, `pushd`, `popd`, `pwd`, `clear`,
-`reset`, `exit` and `rex-resurrect` itself. A command line is ignored when it runs one of these
+`reset`, `exit` and `rexurrect` itself. A command line is ignored when it runs one of these
 on its own, with any arguments: `ls -la` and `cd src` are ignored, but `cd src && make` is
 recorded. Commands are matched by name as you typed them, so an alias counts under its own
-name, or by the last part of the path you typed: `/bin/ls` and `target/debug/rex-resurrect save`
+name, or by the last part of the path you typed: `/bin/ls` and `target/debug/rexurrect save`
 are ignored too.
 
 The list is the zsh array `REXURRECT_IGNORE`. You don't have to set it. To change it, set it
@@ -97,9 +97,9 @@ away.
 ## Usage
 
 ```sh
-rex-resurrect save      # snapshot every session on the Rex server
-rex-resurrect restore   # recreate the latest snapshot's sessions that aren't live
-rex-resurrect list      # list the snapshots, newest first
+rexurrect save      # snapshot every session on the Rex server
+rexurrect restore   # recreate the latest snapshot's sessions that aren't live
+rexurrect list      # list the snapshots, newest first
 ```
 
 - **`save`** records every session: its label, its windows in order, each window's tiled split
@@ -179,7 +179,7 @@ the prompt. Arguments come from `ps`, which drops their quoting. The save also r
 program as the block's last command, so it still comes back after the program exits and the
 block sits at a prompt. A block sitting at a prompt that no save has seen a program in comes back
 with the command restore typed there, if restore created it, or else an empty prompt. Running
-`rex-resurrect` itself (a `save` you ran there) never counts as a program. Restored blocks fall
+`rexurrect` itself (a `save` you ran there) never counts as a program. Restored blocks fall
 back like any other: what restore typed is only their last command until a save sees a program
 in them. (This replaces the first design, #6, in which a restored block never fell back, so
 without the recorder it kept what restore typed forever.) Whatever the recorder recorded beats
@@ -214,7 +214,7 @@ first. If every session fails in the restore a `save` runs first too, that save 
 it leaves `latest.json` alone, exits non-zero, and logs which snapshot failed to restore. It
 does count the server as restored, though, so the next save goes ahead and saves what's live
 instead of failing the same way forever. To try that snapshot again, run the command the
-message gives, `rex-resurrect restore --snapshot <id>`, before the next save (an autosave
+message gives, `rexurrect restore --snapshot <id>`, before the next save (an autosave
 within 15 minutes) replaces `latest.json`; the snapshot itself stays in `list` until retention
 removes it. If only some sessions fail, the save goes ahead and still exits non-zero.
 
@@ -273,13 +273,13 @@ snapshot, once it has gone unchanged for an hour.
 ## Autosave
 
 ```sh
-rex-resurrect autosave install                 # save every 15 minutes
-rex-resurrect autosave install --interval 5    # or every 5
-rex-resurrect autosave uninstall
+rexurrect autosave install                 # save every 15 minutes
+rexurrect autosave install --interval 5    # or every 5
+rexurrect autosave uninstall
 ```
 
 `autosave install` puts a launchd user agent in `~/Library/LaunchAgents`
-(`io.github.cemcatik.rexurrect.autosave.plist`) and loads it, so `rex-resurrect save` runs
+(`io.github.cemcatik.rexurrect.autosave.plist`) and loads it, so `rexurrect save` runs
 every 15 minutes, or every `--interval` minutes, from now on and after every login. Running it
 again replaces the agent, so there's only ever one. macOS may show a one-time "Background Items
 Added" notification.
@@ -303,14 +303,14 @@ finds it when you run it, and prints the server and state directory it chose:
 - `REXURRECT_KEEP` and `REXURRECT_NO_SCROLLBACK`, if set;
 - the directory of the `rex` on your `PATH`. Install fails if there's no `rex` on it.
 
-Run `autosave install` again after changing any of these, or after moving `rex-resurrect`.
+Run `autosave install` again after changing any of these, or after moving `rexurrect`.
 
 `autosave uninstall` unloads the agent and removes its plist, then tells you how to remove the
 zsh recorder and the auto-restore line in `init.lua`. Your snapshots stay in the state
 directory.
 
 To check that autosave works, run `launchctl print gui/$(id -u)/io.github.cemcatik.rexurrect.autosave`
-(its `last exit code` should be 0 after the first run) and `rex-resurrect list` (a new snapshot
+(its `last exit code` should be 0 after the first run) and `rexurrect list` (a new snapshot
 every interval), and look in `rexurrect.log` for failures.
 
 ## Auto-restore
@@ -325,22 +325,22 @@ that sees your usual environment (a Rex block, say):
 
 ```sh
 mkdir -p ~/.config/rex &&
-  rex-resurrect auto-restore --print-hook >> ~/.config/rex/init.lua
+  rexurrect auto-restore --print-hook >> ~/.config/rex/init.lua
 ```
 
 The line reads
-`os.execute([[REXURRECT_STATE_DIR='/Users/you/.local/state/rexurrect' '/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`.
+`os.execute([[REXURRECT_STATE_DIR='/Users/you/.local/state/rexurrect' '/Users/you/.cargo/bin/rexurrect' auto-restore]])`.
 The server runs it in its own environment, not your shell's: the Rex app starts its server with
-a bare `PATH` and no `XDG_*` variables. So the line names `rex-resurrect` by its full path, and
+a bare `PATH` and no `XDG_*` variables. So the line names `rexurrect` by its full path, and
 pins the state directory as it was resolved when you printed it (see
 [Where state lives](#where-state-lives)), so auto-restore uses the same snapshots as your shells
-and their recorder. Print the line again, replacing the old one, after moving `rex-resurrect` or
+and their recorder. Print the line again, replacing the old one, after moving `rexurrect` or
 changing `REXURRECT_STATE_DIR` or `XDG_STATE_HOME`.
 
 **To turn it off**, delete that line. `autosave uninstall` reminds you to.
 
 The server runs `init.lua` when it starts, and again on every `rex config reload`. The line starts
-`rex-resurrect auto-restore`, which returns at once, because the server can't answer anything
+`rexurrect auto-restore`, which returns at once, because the server can't answer anything
 until `init.lua` has finished, and carries on in the background:
 
 - It waits for the server to be ready, then restores the latest snapshot into it the way

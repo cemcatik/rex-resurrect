@@ -83,7 +83,7 @@ pub fn run() -> Result<ExitCode> {
                 "every session in snapshot {snapshot} failed to restore into this server \
                  instance, so nothing was saved and the latest snapshot is unchanged; the next \
                  save won't restore first, and saves what's live. To retry the restore, run \
-                 `rex-resurrect restore --snapshot {snapshot}`"
+                 `rexurrect restore --snapshot {snapshot}`"
             )));
         }
     }

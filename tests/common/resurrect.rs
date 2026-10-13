@@ -9,7 +9,7 @@ use super::env::prepend_path;
 
 /// The binary under test.
 pub fn bin() -> &'static str {
-    env!("CARGO_BIN_EXE_rex-resurrect")
+    env!("CARGO_BIN_EXE_rexurrect")
 }
 
 /// One `rex-resurrect` invocation, with the harness's scrubbed environment:
@@ -79,9 +79,9 @@ impl ResurrectCmd {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("running rex-resurrect");
+            .expect("running rexurrect");
         Running {
-            command: format!("rex-resurrect {:?}", self.args),
+            command: format!("rexurrect {:?}", self.args),
             child: Some(child),
         }
     }
@@ -99,7 +99,7 @@ pub struct Running {
 impl Running {
     pub fn wait(mut self) -> RunOutput {
         let child = self.child.take().expect("a run is waited for once");
-        let out = child.wait_with_output().expect("waiting for rex-resurrect");
+        let out = child.wait_with_output().expect("waiting for rexurrect");
         RunOutput {
             command: std::mem::take(&mut self.command),
             status: out.status,

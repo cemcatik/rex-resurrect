@@ -339,7 +339,7 @@ fn chosen_snapshot(
     match store.read(id)? {
         Some(snapshot) => Ok(Some((id.clone(), snapshot))),
         None => Err(Error::new(format!(
-            "no snapshot {id:?}: `rex-resurrect list` shows the snapshots"
+            "no snapshot {id:?}: `rexurrect list` shows the snapshots"
         ))),
     }
 }

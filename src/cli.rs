@@ -25,7 +25,7 @@ pub enum Command {
 pub const USAGE: &str = "\
 Save Rex sessions and recreate them after the Rex server stops.
 
-Usage: rex-resurrect <command> [options]
+Usage: rexurrect <command> [options]
 
 Commands:
   save      Save every session on the Rex server to a new snapshot
@@ -34,7 +34,7 @@ Commands:
   autosave install
             Run `save` every 15 minutes in the background (a launchd agent)
   autosave uninstall
-            Stop autosave, and say how to remove the rest of rex-resurrect
+            Stop autosave, and say how to remove the rest of rexurrect
   auto-restore
             For Rex's init.lua: once the server running it is ready, restore
             into it in the background, once per server instance

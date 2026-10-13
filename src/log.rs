@@ -92,7 +92,7 @@ impl Log {
 /// so a broken log never hides the failure itself.
 pub fn log_failure(state: &StateDir, command: &str, failure: &dyn Display) {
     if let Err(e) = Log::new(state).append(&format!("{command} failed: {failure}")) {
-        eprintln!("rex-resurrect: couldn't log a failure: {e}");
+        eprintln!("rexurrect: couldn't log a failure: {e}");
     }
 }
 
@@ -101,6 +101,6 @@ pub fn log_failure(state: &StateDir, command: &str, failure: &dyn Display) {
 /// Best effort, like [`log_failure`].
 pub fn log_fallback(state: &StateDir, command: &str, fallback: &dyn Display) {
     if let Err(e) = Log::new(state).append(&format!("{command} fell back: {fallback}")) {
-        eprintln!("rex-resurrect: couldn't log a fallback: {e}");
+        eprintln!("rexurrect: couldn't log a fallback: {e}");
     }
 }

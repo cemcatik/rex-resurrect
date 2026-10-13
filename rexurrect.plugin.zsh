@@ -63,10 +63,10 @@
 # - The recorder directory is private (0700): commands can hold secrets.
 
 # The ignore list's defaults: commands that only look or move around, or
-# clear the screen, and rex-resurrect itself. typeset -g: oh-my-zsh sources
+# clear the screen, and rexurrect itself. typeset -g: oh-my-zsh sources
 # plugins inside a function.
 (( ${+REXURRECT_IGNORE} )) ||
-  typeset -ga REXURRECT_IGNORE=(ls ll la l cd pushd popd pwd clear reset exit rex-resurrect)
+  typeset -ga REXURRECT_IGNORE=(ls ll la l cd pushd popd pwd clear reset exit rexurrect)
 
 # Whether the command line $1 is on the ignore list: one command, not joined
 # to others by `;`, `&&`, `|` and the like, whose name is in

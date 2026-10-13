@@ -333,7 +333,7 @@ impl Replay {
             "--norc",
             "-c",
             REPLAY_SCRIPT,
-            "rex-resurrect",
+            "rexurrect",
             &file,
             user,
             LOGIN_SHELL_EXEC,
