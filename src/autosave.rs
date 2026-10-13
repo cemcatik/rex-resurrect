@@ -80,10 +80,10 @@ fn install(options: &InstallOptions) -> Result<ExitCode> {
 ///   and not a fallback when the server isn't running.
 /// - the state directory, as resolved here, so autosave shares snapshots,
 ///   lineage and recorder files with manual runs and the zsh recorder;
-/// - `REX_RESURRECT_KEEP`, if set, so autosave doesn't prune the snapshots
+/// - `REXURRECT_KEEP`, if set, so autosave doesn't prune the snapshots
 ///   the user wants kept (checked here, so a bad value fails now rather
 ///   than every autosave);
-/// - `REX_RESURRECT_NO_SCROLLBACK`, if set (even empty), so autosave leaves
+/// - `REXURRECT_NO_SCROLLBACK`, if set (even empty), so autosave leaves
 ///   out the scrollback of the same programs as manual saves;
 /// - `PATH`: `rex`'s directory first, then the system's.
 fn job_env(state: &StateDir) -> Result<BTreeMap<String, String>> {

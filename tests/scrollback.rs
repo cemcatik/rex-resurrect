@@ -236,7 +236,7 @@ fn scrollback_is_private_and_kept_only_as_long_as_its_snapshot() {
     let save = || {
         env.resurrect(&server)
             .arg("save")
-            .env("REX_RESURRECT_KEEP", "2")
+            .env("REXURRECT_KEEP", "2")
             .run()
             .assert_success();
     };
@@ -429,7 +429,7 @@ fn the_programs_whose_blocks_get_no_scrollback_replay_can_be_set() {
 
     // The list replaces the default (`claude`).
     env.resurrect(&server)
-        .env("REX_RESURRECT_NO_SCROLLBACK", "vim dev-server")
+        .env("REXURRECT_NO_SCROLLBACK", "vim dev-server")
         .arg("save")
         .run()
         .assert_success();

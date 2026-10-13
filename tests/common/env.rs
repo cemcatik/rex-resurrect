@@ -21,7 +21,7 @@ const INHERITED_VARS: &[&str] = &[
 ];
 
 /// Variable the binary reads for its state directory override.
-pub const STATE_DIR_VAR: &str = "REX_RESURRECT_STATE_DIR";
+pub const STATE_DIR_VAR: &str = "REXURRECT_STATE_DIR";
 
 /// One test's isolated world: a short temp directory holding rex-resurrect's
 /// state directory, the harness `ZDOTDIR`, scratch directories for fixture
@@ -139,10 +139,10 @@ impl TestEnv {
         std::fs::write(&path, sessions.to_string()).unwrap();
     }
 
-    /// The entries in rex-resurrect's log (`rex-resurrect.log` in the state
+    /// The entries in rex-resurrect's log (`rexurrect.log` in the state
     /// directory), oldest first; none if there's no log yet.
     pub fn log_entries(&self) -> Vec<String> {
-        match std::fs::read_to_string(self.state_dir().join("rex-resurrect.log")) {
+        match std::fs::read_to_string(self.state_dir().join("rexurrect.log")) {
             Ok(log) => log.lines().map(str::to_string).collect(),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => panic!("reading the log: {e}"),

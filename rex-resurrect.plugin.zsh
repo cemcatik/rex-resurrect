@@ -23,17 +23,17 @@
 # - Ignores a command that spans several lines or holds any other control
 #   character, keeping the previous record: typed back at a prompt, a line
 #   break would act as Enter.
-# - Ignores the trivial commands on the ignore list, REX_RESURRECT_IGNORE,
+# - Ignores the trivial commands on the ignore list, REXURRECT_IGNORE,
 #   and rex-resurrect itself, keeping the previous record, so the restored
 #   prompt shows the last meaningful command. A command line is ignored when
 #   it runs one command alone, whatever its arguments, and that command's
 #   name (as typed, or the last part of the path typed) is on the list:
 #   `ls -la`, `/bin/ls` and `cd src` are ignored, `cd src && make` is
 #   recorded. The defaults are set when the plugin loads, unless
-#   REX_RESURRECT_IGNORE is already set:
-#     REX_RESURRECT_IGNORE+=(htop tig)    # after loading: extend the defaults
-#     REX_RESURRECT_IGNORE=(ls cd)        # anywhere: replace them
-#     REX_RESURRECT_IGNORE=()             # anywhere: ignore nothing
+#   REXURRECT_IGNORE is already set:
+#     REXURRECT_IGNORE+=(htop tig)    # after loading: extend the defaults
+#     REXURRECT_IGNORE=(ls cd)        # anywhere: replace them
+#     REXURRECT_IGNORE=()             # anywhere: ignore nothing
 #   It's read at every command, so a change applies to the next command. A
 #   space-separated string works too.
 # - Tracks the last command itself rather than reading shell history, so it
@@ -47,9 +47,9 @@
 #   foreground, what restore typed at its prompt).
 # - Path: <state dir>/recorder/<block ID>, the block ID exactly as REX_BLOCK
 #   holds it (recorder/block:01a129c9-08f8-74b3-b44a-5573c12596b0).
-# - State dir, first match wins: $REX_RESURRECT_STATE_DIR;
-#   $XDG_STATE_HOME/rex-resurrect when XDG_STATE_HOME is absolute;
-#   $HOME/.local/state/rex-resurrect.
+# - State dir, first match wins: $REXURRECT_STATE_DIR;
+#   $XDG_STATE_HOME/rexurrect when XDG_STATE_HOME is absolute;
+#   $HOME/.local/state/rexurrect.
 # - Contents: the block's last command, UTF-8 text on one line, ending in a
 #   newline (readers accept it without one). Only the latest is kept.
 # - An empty line records that the block has no last command: rex-resurrect
@@ -65,15 +65,15 @@
 # The ignore list's defaults: commands that only look or move around, or
 # clear the screen, and rex-resurrect itself. typeset -g: oh-my-zsh sources
 # plugins inside a function.
-(( ${+REX_RESURRECT_IGNORE} )) ||
-  typeset -ga REX_RESURRECT_IGNORE=(ls ll la l cd pushd popd pwd clear reset exit rex-resurrect)
+(( ${+REXURRECT_IGNORE} )) ||
+  typeset -ga REXURRECT_IGNORE=(ls ll la l cd pushd popd pwd clear reset exit rex-resurrect)
 
 # Whether the command line $1 is on the ignore list: one command, not joined
 # to others by `;`, `&&`, `|` and the like, whose name is in
-# REX_RESURRECT_IGNORE as typed or as the last part of its path (`/bin/ls`).
+# REXURRECT_IGNORE as typed or as the last part of its path (`/bin/ls`).
 _rex_resurrect_ignored() {
   emulate -L zsh
-  local -a words=(${(z)1}) ignore=(${=REX_RESURRECT_IGNORE})
+  local -a words=(${(z)1}) ignore=(${=REXURRECT_IGNORE})
   local -a separators=(';' '&' '&&' '||' '|' '|&' '&!' '&|')
   local -a joined=(${words:*separators})
   (( $#joined == 0 && (${ignore[(Ie)$words[1]]} || ${ignore[(Ie)${words[1]:t}]}) ))
@@ -86,12 +86,12 @@ _rex_resurrect_record() {
   [[ -n $1 && $1 != *[[:cntrl:]]* && -n $REX_BLOCK ]] || return 0
   _rex_resurrect_ignored "$1" && return 0
   local dir
-  if [[ -n $REX_RESURRECT_STATE_DIR ]]; then
-    dir=$REX_RESURRECT_STATE_DIR
+  if [[ -n $REXURRECT_STATE_DIR ]]; then
+    dir=$REXURRECT_STATE_DIR
   elif [[ $XDG_STATE_HOME == /* ]]; then
-    dir=$XDG_STATE_HOME/rex-resurrect
+    dir=$XDG_STATE_HOME/rexurrect
   elif [[ -n $HOME ]]; then
-    dir=$HOME/.local/state/rex-resurrect
+    dir=$HOME/.local/state/rexurrect
   else
     return 0
   fi

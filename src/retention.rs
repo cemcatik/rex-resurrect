@@ -13,7 +13,7 @@ use crate::error::{Error, Result};
 use crate::settings;
 use crate::state;
 
-pub const KEEP_VAR: &str = "REX_RESURRECT_KEEP";
+pub const KEEP_VAR: &str = "REXURRECT_KEEP";
 const DEFAULT_KEEP: usize = 10;
 
 /// How many snapshots to keep: the newest N.
@@ -23,7 +23,7 @@ pub struct Retention {
 }
 
 impl Retention {
-    /// `$REX_RESURRECT_KEEP` snapshots, 10 if it's unset or empty. Anything
+    /// `$REXURRECT_KEEP` snapshots, 10 if it's unset or empty. Anything
     /// but a whole number of at least 1 is an error.
     pub fn from_env() -> Result<Retention> {
         let Some(value) = settings::env_non_empty(KEEP_VAR) else {

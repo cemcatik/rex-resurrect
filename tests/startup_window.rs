@@ -116,7 +116,7 @@ fn saves_keeping_one_snapshot_keep_the_scrollback_a_restore_in_its_startup_windo
         for _ in 0..2 {
             env.resurrect(&server)
                 .arg("save")
-                .env("REX_RESURRECT_KEEP", "1")
+                .env("REXURRECT_KEEP", "1")
                 .run()
                 .assert_success();
         }

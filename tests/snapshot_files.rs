@@ -10,7 +10,7 @@ use std::os::unix::fs::PermissionsExt;
 use common::files::accessible_to_others;
 use common::*;
 
-const KEEP_VAR: &str = "REX_RESURRECT_KEEP";
+const KEEP_VAR: &str = "REXURRECT_KEEP";
 
 /// The snapshots `rex-resurrect list` shows, newest first, each as its
 /// session labels (`zz-1, zz-2`).

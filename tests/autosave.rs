@@ -528,7 +528,7 @@ fn install_hands_the_programs_whose_blocks_get_no_scrollback_on_to_autosave() {
 
     launchd
         .aim(env.resurrect_at(NO_SERVER))
-        .env("REX_RESURRECT_NO_SCROLLBACK", "claude aider")
+        .env("REXURRECT_NO_SCROLLBACK", "claude aider")
         .args(["autosave", "install"])
         .run()
         .assert_success();
@@ -537,7 +537,7 @@ fn install_hands_the_programs_whose_blocks_get_no_scrollback_on_to_autosave() {
     assert!(
         agent
             .environment()
-            .contains(&("REX_RESURRECT_NO_SCROLLBACK", "claude aider")),
+            .contains(&("REXURRECT_NO_SCROLLBACK", "claude aider")),
         "{agent:?}"
     );
 }
@@ -551,7 +551,7 @@ fn autosaves_keep_as_many_snapshots_as_install_was_told_to() {
     server.wait_for_pwds(&fixture);
     launchd
         .aim(env.resurrect(&server))
-        .env("REX_RESURRECT_KEEP", "2")
+        .env("REXURRECT_KEEP", "2")
         .args(["autosave", "install"])
         .run()
         .assert_success();

@@ -1,5 +1,5 @@
-//! Where rex-resurrect keeps its state: `$REX_RESURRECT_STATE_DIR`, else
-//! `$XDG_STATE_HOME/rex-resurrect`, else `~/.local/state/rex-resurrect`.
+//! Where rex-resurrect keeps its state: `$REXURRECT_STATE_DIR`, else
+//! `$XDG_STATE_HOME/rexurrect`, else `~/.local/state/rexurrect`.
 
 mod common;
 
@@ -50,7 +50,7 @@ fn without_the_override_state_lives_in_xdg_state_home() {
     };
 
     run("save", &xdg);
-    assert!(has_entries(&xdg.join("rex-resurrect")));
+    assert!(has_entries(&xdg.join("rexurrect")));
     assert!(
         !has_entries(&env.state_dir()),
         "the override dir is untouched"
@@ -80,5 +80,5 @@ fn without_xdg_state_home_state_lives_under_home() {
         .run()
         .assert_success();
 
-    assert!(has_entries(&home.join(".local/state/rex-resurrect")));
+    assert!(has_entries(&home.join(".local/state/rexurrect")));
 }

@@ -1,4 +1,4 @@
-//! rex-resurrect's log: `rex-resurrect.log` in the state directory.
+//! rex-resurrect's log: `rexurrect.log` in the state directory.
 //!
 //! `save` and `restore` append their failures here, one timestamped line
 //! each, so a failed autosave, which nobody watches, can still be diagnosed.
@@ -19,7 +19,7 @@ use crate::error::{Context, Result};
 use crate::state::{self, StateDir};
 use crate::timestamp::Timestamp;
 
-const LOG: &str = "rex-resurrect.log";
+const LOG: &str = "rexurrect.log";
 /// The size past which the log keeps only its newest half. While Rex is
 /// quit, every autosave appends a line, so it would otherwise grow forever.
 const MAX_SIZE: u64 = 1 << 20;

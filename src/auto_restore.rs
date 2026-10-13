@@ -44,7 +44,7 @@ pub struct AutoRestoreOptions {
 }
 
 /// How long the background run waits for the server to be ready, in seconds.
-const READY_TIMEOUT_VAR: &str = "REX_RESURRECT_READY_TIMEOUT";
+const READY_TIMEOUT_VAR: &str = "REXURRECT_READY_TIMEOUT";
 const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long one readiness check waits for the server to answer. A server
 /// still running init.lua accepts the connection and answers nothing.
@@ -64,7 +64,7 @@ pub fn run(options: &AutoRestoreOptions) -> Result<ExitCode> {
 }
 
 /// The line that turns auto-restore on in init.lua:
-/// `os.execute([[REX_RESURRECT_STATE_DIR='<state dir>' '<rex-resurrect>' auto-restore]])`.
+/// `os.execute([[REXURRECT_STATE_DIR='<state dir>' '<rex-resurrect>' auto-restore]])`.
 ///
 /// Both are pinned as they are here. The server runs init.lua in its own
 /// environment, not the user's shell's: the Rex app starts it with a bare
@@ -224,7 +224,7 @@ fn wait_until_ready(server: &ServerProcess, timeout: Duration) -> Result<Ready> 
     }
 }
 
-/// `REX_RESURRECT_READY_TIMEOUT`, or the default of a minute.
+/// `REXURRECT_READY_TIMEOUT`, or the default of a minute.
 fn ready_timeout() -> Result<Duration> {
     let Some(value) = settings::env_non_empty(READY_TIMEOUT_VAR) else {
         return Ok(DEFAULT_READY_TIMEOUT);

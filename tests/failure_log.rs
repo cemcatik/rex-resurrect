@@ -142,7 +142,7 @@ fn the_log_keeps_only_its_newest_entries_once_it_passes_a_megabyte() {
         server.endpoint().to_string()
     }; // Rex quits.
     // A log that has been growing for a long time.
-    let log = env.state_dir().join("rex-resurrect.log");
+    let log = env.state_dir().join("rexurrect.log");
     let filler = "x".repeat(40);
     let old: String = (0..20_000)
         .map(|i| format!("2026-01-01T00:00:00.000000Z save failed: zz-old-{i:05} {filler}\n"))

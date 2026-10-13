@@ -75,21 +75,21 @@ recorded. Commands are matched by name as you typed them, so an alias counts und
 name, or by the last part of the path you typed: `/bin/ls` and `target/debug/rex-resurrect save`
 are ignored too.
 
-The list is the zsh array `REX_RESURRECT_IGNORE`. You don't have to set it. To change it, set it
+The list is the zsh array `REXURRECT_IGNORE`. You don't have to set it. To change it, set it
 in `~/.zshrc`:
 
 ```sh
 # After loading the recorder: add to the defaults.
-REX_RESURRECT_IGNORE+=(htop tig)
+REXURRECT_IGNORE+=(htop tig)
 
 # Anywhere in ~/.zshrc: replace the defaults (before or after loading the recorder).
-REX_RESURRECT_IGNORE=(ls cd clear)
+REXURRECT_IGNORE=(ls cd clear)
 
 # Ignore nothing but multi-line commands.
-REX_RESURRECT_IGNORE=()
+REXURRECT_IGNORE=()
 ```
 
-The recorder fills in the defaults when it loads, unless `REX_RESURRECT_IGNORE` is already set.
+The recorder fills in the defaults when it loads, unless `REXURRECT_IGNORE` is already set.
 So adding to the list only works after loading the recorder; with oh-my-zsh, that means after
 `source $ZSH/oh-my-zsh.sh`. The list is read at every command, so a change applies straight
 away.
@@ -107,7 +107,7 @@ rex-resurrect list      # list the snapshots, newest first
   and block labels are recorded only if you set them; windows and blocks with Rex's default
   labels get fresh default labels on restore, not stale copies like `Window 1a2b3c4d`. Each
   save is a new timestamped snapshot; `latest.json` points at the newest. The newest 10
-  snapshots are kept (set `REX_RESURRECT_KEEP` to keep a different number).
+  snapshots are kept (set `REXURRECT_KEEP` to keep a different number).
   - Untouched sessions are left out: one window holding one shell, with Rex's default window
     and block labels, still in your home directory, and no last command. Sessions that Rex or
     you create and then abandon therefore don't pile up across restarts. A session's own label
@@ -154,13 +154,13 @@ and reflows when you resize the block. A block that was showing a full-screen pr
 a frozen picture of the program; its command still comes back typed at the prompt.
 
 Some programs draw their interface on the main screen instead, where Rex can't tell it from
-earlier output. A block running one of the programs listed in `REX_RESURRECT_NO_SCROLLBACK` gets
+earlier output. A block running one of the programs listed in `REXURRECT_NO_SCROLLBACK` gets
 no scrollback either. The list holds program names separated by spaces, matched against the name
 the program was run by (`claude`) and the name of its executable. It defaults to `claude` (Claude
 Code); set it to replace the default, or to an empty string for no programs:
 
 ```sh
-export REX_RESURRECT_NO_SCROLLBACK="claude aider"
+export REXURRECT_NO_SCROLLBACK="claude aider"
 ```
 
 Set it where `save` sees it, and run `autosave install` again afterwards, so autosave uses it too.
@@ -168,7 +168,7 @@ Set it where `save` sees it, and run `autosave install` again afterwards, so aut
 A block whose scrollback is too large for Rex to hand over (Rex caps one response at 1 MB, which a
 few thousand lines of coloured output can fill) is saved without it, and the save carries on: it
 comes back in its directory with its command typed, but nothing above the prompt. The first
-save to find a block's scrollback too large adds a line to `rex-resurrect.log` naming its session
+save to find a block's scrollback too large adds a line to `rexurrect.log` naming its session
 and block; later saves don't repeat it while it stays too large. Clearing the block's scrollback
 (Cmd-K) lets the next save keep it again.
 
@@ -222,7 +222,7 @@ rex-resurrect never starts a Rex server. If Rex isn't running, `save` and `resto
 say so.
 
 Every failure of `save` or `restore`, including each session that fails to restore, is also
-appended to `rex-resurrect.log` in the state directory, one line per failure starting with a
+appended to `rexurrect.log` in the state directory, one line per failure starting with a
 UTC timestamp. Successful runs write nothing there, with two exceptions: auto-restore logs every
 outcome (see [Auto-restore](#auto-restore)), and save logs each block whose scrollback it
 starts saving without because it's too large. Once the log passes 1 MB (an autosave failing
@@ -237,9 +237,9 @@ Autosave saves the server `autosave install` names (see [Autosave](#autosave)).
 
 Snapshots and rex-resurrect's own bookkeeping live in its state directory:
 
-1. `$REX_RESURRECT_STATE_DIR`, if set;
-2. otherwise `$XDG_STATE_HOME/rex-resurrect`;
-3. otherwise `~/.local/state/rex-resurrect`.
+1. `$REXURRECT_STATE_DIR`, if set;
+2. otherwise `$XDG_STATE_HOME/rexurrect`;
+3. otherwise `~/.local/state/rexurrect`.
 
 It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which live session
 restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
@@ -255,9 +255,9 @@ entries of blocks that no longer exist, and the `lineage.json` and `starting-ses
 entries of sessions that no longer exist, so the directory doesn't grow forever. A save that
 fails or writes nothing removes nothing. `scrollback/` holds each snapshot's block scrollback,
 which goes when its snapshot goes (or two minutes after a restore from it, if that's later); a
-block with 50,000 lines of output takes about 340 KB per snapshot. `rex-resurrect.log` is the log of
+block with 50,000 lines of output takes about 340 KB per snapshot. `rexurrect.log` is the log of
 failures, auto-restore outcomes and blocks saved without scrollback because it was too large.
-The recorder finds the state directory the same way, so set `REX_RESURRECT_STATE_DIR` (if you
+The recorder finds the state directory the same way, so set `REXURRECT_STATE_DIR` (if you
 use it) where both your shells and rex-resurrect see it.
 Autosave and auto-restore run outside your shells, so `autosave install` and
 `auto-restore --print-hook` pin the state directory they resolve.
@@ -285,7 +285,7 @@ again replaces the agent, so there's only ever one. macOS may show a one-time "B
 Added" notification.
 
 Autosave is silent: its output is discarded, and a failure (Rex not running, an API error, a
-snapshot that fails validation) only adds a line to `rex-resurrect.log` in the state directory.
+snapshot that fails validation) only adds a line to `rexurrect.log` in the state directory.
 While Rex isn't running, each autosave fails and logs it; it never starts a server. On a freshly
 started server, autosave restores before it saves, like any `save`.
 
@@ -300,7 +300,7 @@ finds it when you run it, and prints the server and state directory it chose:
   up on another one;
 - **the state directory**, resolved as above, so autosave shares snapshots with your manual
   runs and the recorder;
-- `REX_RESURRECT_KEEP` and `REX_RESURRECT_NO_SCROLLBACK`, if set;
+- `REXURRECT_KEEP` and `REXURRECT_NO_SCROLLBACK`, if set;
 - the directory of the `rex` on your `PATH`. Install fails if there's no `rex` on it.
 
 Run `autosave install` again after changing any of these, or after moving `rex-resurrect`.
@@ -311,7 +311,7 @@ directory.
 
 To check that autosave works, run `launchctl print gui/$(id -u)/io.github.cemcatik.rex-resurrect.autosave`
 (its `last exit code` should be 0 after the first run) and `rex-resurrect list` (a new snapshot
-every interval), and look in `rex-resurrect.log` for failures.
+every interval), and look in `rexurrect.log` for failures.
 
 ## Auto-restore
 
@@ -329,13 +329,13 @@ mkdir -p ~/.config/rex &&
 ```
 
 The line reads
-`os.execute([[REX_RESURRECT_STATE_DIR='/Users/you/.local/state/rex-resurrect' '/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`.
+`os.execute([[REXURRECT_STATE_DIR='/Users/you/.local/state/rexurrect' '/Users/you/.cargo/bin/rex-resurrect' auto-restore]])`.
 The server runs it in its own environment, not your shell's: the Rex app starts its server with
 a bare `PATH` and no `XDG_*` variables. So the line names `rex-resurrect` by its full path, and
 pins the state directory as it was resolved when you printed it (see
 [Where state lives](#where-state-lives)), so auto-restore uses the same snapshots as your shells
 and their recorder. Print the line again, replacing the old one, after moving `rex-resurrect` or
-changing `REX_RESURRECT_STATE_DIR` or `XDG_STATE_HOME`.
+changing `REXURRECT_STATE_DIR` or `XDG_STATE_HOME`.
 
 **To turn it off**, delete that line. `autosave uninstall` reminds you to.
 
@@ -353,10 +353,10 @@ until `init.lua` has finished, and carries on in the background:
   block, whose `REX_SERVER` that server inherits. It reads the server's endpoint from the server
   process's command line, uses it only once the server there reports the right process ID, and
   then names it explicitly in every call. It runs the `rex` that the server itself runs.
-- It's silent. Its output is discarded, and each run adds one line to `rex-resurrect.log` saying
+- It's silent. Its output is discarded, and each run adds one line to `rexurrect.log` saying
   which server it restored into and what it created and skipped, that there was nothing to do,
   or why it gave up, plus a line for each session that failed. If the server isn't ready within
-  60 seconds, it gives up and logs that. Set `REX_RESURRECT_READY_TIMEOUT` (seconds) in the
+  60 seconds, it gives up and logs that. Set `REXURRECT_READY_TIMEOUT` (seconds) in the
   server's environment, or in the line, to wait longer.
 - The Rex app may create a session of its own when it finds the server empty. Auto-restore
   leaves it alone, and while it's untouched `save` never saves it.

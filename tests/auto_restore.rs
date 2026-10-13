@@ -183,7 +183,7 @@ fn if_the_server_never_becomes_ready_the_background_restore_gives_up_and_logs_it
     let mut server = env
         .server()
         .init_lua(format!("{}{}", hook(&env), held_until(&go)))
-        .env("REX_RESURRECT_READY_TIMEOUT", "1")
+        .env("REXURRECT_READY_TIMEOUT", "1")
         .start_without_waiting();
     let entries = wait_for_auto_restores(&env, 1);
 
@@ -233,7 +233,7 @@ fn the_background_restore_holds_none_of_the_servers_open_files() {
 #[test]
 fn the_printed_hook_restores_from_the_state_directory_it_was_printed_with() {
     let env = TestEnv::new();
-    // The user's shells: no REX_RESURRECT_STATE_DIR, an XDG_STATE_HOME of
+    // The user's shells: no REXURRECT_STATE_DIR, an XDG_STATE_HOME of
     // their own.
     let xdg_state_home = env.root().join("user-xdg-state");
     let users = |cmd: ResurrectCmd| {
@@ -256,7 +256,7 @@ fn the_printed_hook_restores_from_the_state_directory_it_was_printed_with() {
 
     // The server's environment names another state directory.
     let server = env.server().init_lua(&printed.stdout).start();
-    let log = xdg_state_home.join("rex-resurrect/rex-resurrect.log");
+    let log = xdg_state_home.join("rexurrect/rexurrect.log");
     wait_for("auto-restore's entry in the user's log", || {
         let log = std::fs::read_to_string(&log).unwrap_or_default();
         log.contains(" auto-restore").then_some(())

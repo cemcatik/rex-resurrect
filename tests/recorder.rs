@@ -237,7 +237,7 @@ fn users_can_extend_the_ignore_list_from_their_zsh_config() {
     let plugin = common::zsh::quote(&common::zsh::recorder_plugin());
     let env = TestEnv::builder()
         .zshrc_line(format!("source {plugin}"))
-        .zshrc_line("REX_RESURRECT_IGNORE+=(echo)")
+        .zshrc_line("REXURRECT_IGNORE+=(echo)")
         .build();
     let server = env.start_server();
     let touch = format!("touch {}", env.root().join("zz-touched").display());
@@ -256,7 +256,7 @@ fn users_can_extend_the_ignore_list_from_their_zsh_config() {
 fn users_can_replace_the_ignore_list_from_their_zsh_config() {
     let plugin = common::zsh::quote(&common::zsh::recorder_plugin());
     let env = TestEnv::builder()
-        .zshrc_line("REX_RESURRECT_IGNORE=(echo)")
+        .zshrc_line("REXURRECT_IGNORE=(echo)")
         .zshrc_line(format!("source {plugin}"))
         .build();
     let server = env.start_server();
