@@ -279,7 +279,7 @@ rex-resurrect autosave uninstall
 ```
 
 `autosave install` puts a launchd user agent in `~/Library/LaunchAgents`
-(`io.github.cemcatik.rex-resurrect.autosave.plist`) and loads it, so `rex-resurrect save` runs
+(`io.github.cemcatik.rexurrect.autosave.plist`) and loads it, so `rex-resurrect save` runs
 every 15 minutes, or every `--interval` minutes, from now on and after every login. Running it
 again replaces the agent, so there's only ever one. macOS may show a one-time "Background Items
 Added" notification.
@@ -309,7 +309,7 @@ Run `autosave install` again after changing any of these, or after moving `rex-r
 zsh recorder and the auto-restore line in `init.lua`. Your snapshots stay in the state
 directory.
 
-To check that autosave works, run `launchctl print gui/$(id -u)/io.github.cemcatik.rex-resurrect.autosave`
+To check that autosave works, run `launchctl print gui/$(id -u)/io.github.cemcatik.rexurrect.autosave`
 (its `last exit code` should be 0 after the first run) and `rex-resurrect list` (a new snapshot
 every interval), and look in `rexurrect.log` for failures.
 
@@ -385,8 +385,8 @@ They never touch your real Rex server, sessions or snapshots. The shared harness
 `tests/common/`.
 
 Autosave's tests never touch the real launchd either: `launchctl` is found on `PATH`, so they
-put a stand-in first, and `REX_RESURRECT_LAUNCH_AGENTS_DIR` replaces `~/Library/LaunchAgents`.
+put a stand-in first, and `REXURRECT_LAUNCH_AGENTS_DIR` replaces `~/Library/LaunchAgents`.
 To try autosave on the real launchd without touching your own agent, also set
-`REX_RESURRECT_AUTOSAVE_LABEL` to a scratch label (for both `install` and `uninstall`).
+`REXURRECT_AUTOSAVE_LABEL` to a scratch label (for both `install` and `uninstall`).
 
 Terms (session, window, block, label, lineage, ...) follow [GLOSSARY.md](GLOSSARY.md).

@@ -17,8 +17,8 @@ use std::process::Command;
 use common::*;
 use serde_json::Value;
 
-const AGENTS_DIR_VAR: &str = "REX_RESURRECT_LAUNCH_AGENTS_DIR";
-const LABEL: &str = "io.github.cemcatik.rex-resurrect.autosave";
+const AGENTS_DIR_VAR: &str = "REXURRECT_LAUNCH_AGENTS_DIR";
+const LABEL: &str = "io.github.cemcatik.rexurrect.autosave";
 
 /// A stand-in for the user's launchd domain: a LaunchAgents directory and a
 /// `launchctl` that models `print`, `bootstrap` and `bootout` on it the way
@@ -462,11 +462,11 @@ fn an_interval_that_is_not_a_whole_number_of_minutes_installs_nothing() {
 fn a_test_label_keeps_a_scratch_agent_apart_from_the_real_one() {
     let env = TestEnv::new();
     let launchd = FakeLaunchd::new(&env);
-    let scratch = "io.github.cemcatik.rex-resurrect.autosave.test-1234";
+    let scratch = "io.github.cemcatik.rexurrect.autosave.test-1234";
     let autosave = |action: &str| {
         launchd
             .aim(env.resurrect_at(NO_SERVER))
-            .env("REX_RESURRECT_AUTOSAVE_LABEL", scratch)
+            .env("REXURRECT_AUTOSAVE_LABEL", scratch)
             .args(["autosave", action])
             .run()
             .assert_success()
