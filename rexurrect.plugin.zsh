@@ -1,13 +1,13 @@
-# rex-resurrect.plugin.zsh: the rex-resurrect recorder for zsh.
+# rexurrect.plugin.zsh: the rex-resurrect recorder for zsh.
 #
 # Records each command a Rex block's shell starts as that block's last
 # command. After the Rex server restarts, `rex-resurrect restore` types it
 # back at the block's prompt, never running it.
 #
 # Load it from ~/.zshrc, either way:
-#   source /path/to/rex-resurrect.plugin.zsh
-#   plugins=(... rex-resurrect)    # oh-my-zsh, with this file at
-#                                  # $ZSH_CUSTOM/plugins/rex-resurrect/rex-resurrect.plugin.zsh
+#   source /path/to/rexurrect.plugin.zsh
+#   plugins=(... rexurrect)    # oh-my-zsh, with this file at
+#                              # $ZSH_CUSTOM/plugins/rexurrect/rexurrect.plugin.zsh
 #
 # Behaviour:
 # - Only inside Rex: without REX_BLOCK (other terminals, tmux outside Rex)
@@ -15,7 +15,7 @@
 # - Only in the block's outermost shell. Nested shells (`nix develop`,
 #   `poetry shell`, a `zsh` started by hand) inherit REX_BLOCK, so the first
 #   shell to load the recorder in a block exports
-#   _REX_RESURRECT_RECORDER="<its PID> <block ID>". A shell that finds its own
+#   _REXURRECT_RECORDER="<its PID> <block ID>". A shell that finds its own
 #   block there under a different PID is nested and stays silent. `exec zsh`
 #   keeps the PID, so the outermost shell carries on recording after it.
 # - Records from zsh's preexec hook, as a command starts, so a program still
@@ -71,7 +71,7 @@
 # Whether the command line $1 is on the ignore list: one command, not joined
 # to others by `;`, `&&`, `|` and the like, whose name is in
 # REXURRECT_IGNORE as typed or as the last part of its path (`/bin/ls`).
-_rex_resurrect_ignored() {
+_rexurrect_ignored() {
   emulate -L zsh
   local -a words=(${(z)1}) ignore=(${=REXURRECT_IGNORE})
   local -a separators=(';' '&' '&&' '||' '|' '|&' '&!' '&|')
@@ -79,12 +79,12 @@ _rex_resurrect_ignored() {
   (( $#joined == 0 && (${ignore[(Ie)$words[1]]} || ${ignore[(Ie)${words[1]:t}]}) ))
 }
 
-_rex_resurrect_record() {
+_rexurrect_record() {
   emulate -L zsh
   # $1 is the command line as typed (aliases unexpanded). Any control
   # character disqualifies it, tab included: typed back, a tab completes.
   [[ -n $1 && $1 != *[[:cntrl:]]* && -n $REX_BLOCK ]] || return 0
-  _rex_resurrect_ignored "$1" && return 0
+  _rexurrect_ignored "$1" && return 0
   local dir
   if [[ -n $REXURRECT_STATE_DIR ]]; then
     dir=$REXURRECT_STATE_DIR
@@ -119,13 +119,13 @@ _rex_resurrect_record() {
   [[ -n $REX_BLOCK ]] || return 0
   # REX_BLOCK names a file: never let it point outside the recorder directory.
   [[ $REX_BLOCK != *[^[:alnum:]:._-]* && $REX_BLOCK != .* ]] || return 0
-  if [[ $_REX_RESURRECT_RECORDER == *" $REX_BLOCK" &&
-        $_REX_RESURRECT_RECORDER != "$$ $REX_BLOCK" ]]; then
+  if [[ $_REXURRECT_RECORDER == *" $REX_BLOCK" &&
+        $_REXURRECT_RECORDER != "$$ $REX_BLOCK" ]]; then
     return 0  # a nested shell: the block's outermost shell records
   fi
-  export _REX_RESURRECT_RECORDER="$$ $REX_BLOCK"
+  export _REXURRECT_RECORDER="$$ $REX_BLOCK"
   # Builtin mkdir/mv, so recording a command never forks.
   zmodload -F zsh/files b:zf_mkdir b:zf_mv 2>/dev/null
   autoload -Uz add-zsh-hook
-  add-zsh-hook preexec _rex_resurrect_record
+  add-zsh-hook preexec _rexurrect_record
 }

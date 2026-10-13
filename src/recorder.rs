@@ -1,5 +1,5 @@
 //! Recorder files: each block's last command, as recorded by the shell
-//! recorder (`rex-resurrect.plugin.zsh` at the repo root). They belong to
+//! recorder (`rexurrect.plugin.zsh` at the repo root). They belong to
 //! recorders: rex-resurrect reads them and removes those of blocks that
 //! aren't live, but never writes one, so a recorder file always means a
 //! recorder wrote it, and save can't race a recorder. What rex-resurrect

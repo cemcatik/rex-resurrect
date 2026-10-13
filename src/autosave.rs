@@ -137,7 +137,7 @@ fn utf8(value: &OsStr) -> Result<String> {
 }
 
 /// Where the README explains auto-restore, including the line to remove.
-const AUTO_RESTORE_DOCS: &str = "https://github.com/cemcatik/rex-resurrect#auto-restore";
+const AUTO_RESTORE_DOCS: &str = "https://github.com/cemcatik/rexurrect#auto-restore";
 
 fn uninstall() -> Result<ExitCode> {
     let scheduler = scheduler::for_this_platform()?;
@@ -151,10 +151,10 @@ fn uninstall() -> Result<ExitCode> {
     }
     println!(
         "\
-To back out of rex-resurrect completely:
-- zsh recorder: remove the line that sources rex-resurrect.plugin.zsh from ~/.zshrc
-  (or `rex-resurrect` from oh-my-zsh's plugins=(...)), then open new shells.
-- auto-restore: remove the rex-resurrect line from Rex's init.lua; see
+To back out of rexurrect completely:
+- zsh recorder: remove the line that sources rexurrect.plugin.zsh from ~/.zshrc
+  (or `rexurrect` from oh-my-zsh's plugins=(...)), then open new shells.
+- auto-restore: remove the rexurrect line from Rex's init.lua; see
   {AUTO_RESTORE_DOCS}"
     );
     if let Ok(state) = StateDir::from_env() {

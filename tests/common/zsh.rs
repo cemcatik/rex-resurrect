@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 /// The zsh recorder plugin shipped at the repo root.
 pub fn recorder_plugin() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("rex-resurrect.plugin.zsh")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("rexurrect.plugin.zsh")
 }
 
 /// `path` single-quoted for a zsh command line.

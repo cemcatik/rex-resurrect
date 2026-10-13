@@ -396,10 +396,10 @@ fn an_autosave_while_rex_is_not_running_logs_the_failure_and_starts_no_server() 
 /// auto-restore line in Rex's init.lua.
 fn assert_explains_backing_out(out: &RunOutput) {
     for what in [
-        "rex-resurrect.plugin.zsh",
+        "rexurrect.plugin.zsh",
         ".zshrc",
         "init.lua",
-        "#auto-restore",
+        "https://github.com/cemcatik/rexurrect#auto-restore",
     ] {
         assert!(out.stdout.contains(what), "no mention of {what}: {out}");
     }

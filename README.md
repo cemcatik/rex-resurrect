@@ -28,28 +28,28 @@ To get last commands back, also load the zsh recorder (next section).
 
 ### The zsh recorder
 
-[`rex-resurrect.plugin.zsh`](rex-resurrect.plugin.zsh) records each command a block's shell
+[`rexurrect.plugin.zsh`](rexurrect.plugin.zsh) records each command a block's shell
 starts as that block's last command. Load it from `~/.zshrc` in either of these ways.
 
 **Plain `source`:**
 
 ```sh
 mkdir -p ~/.zsh
-curl -fsSL -o ~/.zsh/rex-resurrect.plugin.zsh \
-  https://raw.githubusercontent.com/cemcatik/rex-resurrect/main/rex-resurrect.plugin.zsh
-echo 'source ~/.zsh/rex-resurrect.plugin.zsh' >> ~/.zshrc
+curl -fsSL -o ~/.zsh/rexurrect.plugin.zsh \
+  https://raw.githubusercontent.com/cemcatik/rexurrect/main/rexurrect.plugin.zsh
+echo 'source ~/.zsh/rexurrect.plugin.zsh' >> ~/.zshrc
 ```
 
 **As an oh-my-zsh custom plugin:**
 
 ```sh
-dir="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/rex-resurrect"
+dir="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/rexurrect"
 mkdir -p "$dir"
-curl -fsSL -o "$dir/rex-resurrect.plugin.zsh" \
-  https://raw.githubusercontent.com/cemcatik/rex-resurrect/main/rex-resurrect.plugin.zsh
+curl -fsSL -o "$dir/rexurrect.plugin.zsh" \
+  https://raw.githubusercontent.com/cemcatik/rexurrect/main/rexurrect.plugin.zsh
 ```
 
-Then add `rex-resurrect` to `plugins=(...)` in `~/.zshrc`. Cloning this repository into that
+Then add `rexurrect` to `plugins=(...)` in `~/.zshrc`. Cloning this repository into that
 directory works too.
 
 New shells pick it up. The recorder:

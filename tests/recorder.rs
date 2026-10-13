@@ -100,7 +100,7 @@ fn after_exec_zsh_the_outermost_shell_still_records() {
 /// `$ZSH_CUSTOM/plugins/<name>/<name>.plugin.zsh`, add its directory to
 /// `fpath`, then source that file from inside a function with locals.
 const OMZ_LIKE_LOADER: &str = r#"ZSH_CUSTOM=${ZDOTDIR:h}/omz-custom
-plugins=(rex-resurrect)
+plugins=(rexurrect)
 for plugin ($plugins); do
   [[ -f $ZSH_CUSTOM/plugins/$plugin/$plugin.plugin.zsh ]] && fpath=($ZSH_CUSTOM/plugins/$plugin $fpath)
 done
@@ -117,11 +117,11 @@ unset plugin"#;
 #[test]
 fn the_recorder_loads_as_an_oh_my_zsh_custom_plugin() {
     let env = TestEnv::builder().zshrc_line(OMZ_LIKE_LOADER).build();
-    let plugin_dir = env.root().join("omz-custom/plugins/rex-resurrect");
+    let plugin_dir = env.root().join("omz-custom/plugins/rexurrect");
     std::fs::create_dir_all(&plugin_dir).unwrap();
     std::fs::copy(
         common::zsh::recorder_plugin(),
-        plugin_dir.join("rex-resurrect.plugin.zsh"),
+        plugin_dir.join("rexurrect.plugin.zsh"),
     )
     .unwrap();
     let server = env.start_server();
