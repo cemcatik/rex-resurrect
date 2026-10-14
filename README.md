@@ -165,6 +165,12 @@ export REX_RESURRECT_NO_SCROLLBACK="claude aider"
 
 Set it where `save` sees it, and run `autosave install` again afterwards, so autosave uses it too.
 
+A block whose scrollback is too large for Rex to hand over (Rex caps one response at 1 MB, which a
+few thousand lines of coloured output can fill) is saved without it, and the save carries on: it
+comes back in its directory with its command typed, but nothing above the prompt. Each such
+block adds a line to `rex-resurrect.log` naming its session and block. Clearing the block's
+scrollback (Cmd-K) lets the next save keep it again.
+
 Without the recorder (you don't use zsh, or skipped that step), or in a block whose shell
 started before you loaded it, rex-resurrect falls back to the program running in the block at
 save time: `nvim`, a dev server or a nested shell comes back with its full command line typed at
@@ -216,8 +222,9 @@ say so.
 
 Every failure of `save` or `restore`, including each session that fails to restore, is also
 appended to `rex-resurrect.log` in the state directory, one line per failure starting with a
-UTC timestamp. Successful runs write nothing there, except auto-restore, which logs every
-outcome (see [Auto-restore](#auto-restore)). Once the log passes 1 MB (an autosave failing
+UTC timestamp. Successful runs write nothing there, with two exceptions: auto-restore logs every
+outcome (see [Auto-restore](#auto-restore)), and save logs each block it saved without
+scrollback because the scrollback was too large. Once the log passes 1 MB (an autosave failing
 every 15 minutes while Rex is quit gets it there in a few months), it keeps only its newest half.
 
 ### Which server
@@ -247,8 +254,9 @@ entries of sessions that no longer exist, so the directory doesn't grow forever.
 fails or writes nothing removes nothing. `scrollback/` holds each snapshot's block scrollback,
 which goes when its snapshot goes (or two minutes after a restore from it, if that's later); a
 block with 50,000 lines of output takes about 340 KB per snapshot. `rex-resurrect.log` is the log of
-failures and auto-restore outcomes. The recorder finds the state directory the same way, so set
-`REX_RESURRECT_STATE_DIR` (if you use it) where both your shells and rex-resurrect see it.
+failures, auto-restore outcomes and blocks saved without scrollback because it was too large.
+The recorder finds the state directory the same way, so set `REX_RESURRECT_STATE_DIR` (if you
+use it) where both your shells and rex-resurrect see it.
 Autosave and auto-restore run outside your shells, so `autosave install` and
 `auto-restore --print-hook` pin the state directory they resolve.
 

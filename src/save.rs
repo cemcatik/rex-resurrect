@@ -3,11 +3,12 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use crate::capture;
+use crate::capture::{self, SessionWithScrollback};
 use crate::create;
 use crate::error::{Context, Error, Result};
 use crate::instance::RestoreLock;
 use crate::lineage::LineageMap;
+use crate::log;
 use crate::restore;
 use crate::retention::Retention;
 use crate::rex::Rex;
@@ -147,18 +148,21 @@ fn save_snapshot(
     let mut live = Live::new();
     let mut sessions = Vec::new();
     let mut programs_seen = Vec::new();
+    let mut fallbacks = Vec::new();
     for summary in rex.list_sessions()? {
         let view = rex.view_session(&summary.session_id)?;
         live.add(&view);
         let lineage = lineages.lineage_of(&view.session_id);
-        let saving = || format!("saving session {:?} ({})", view.label, view.session_id);
+        let session = format!("session {:?} ({})", view.label, view.session_id);
+        let saving = || format!("saving {session}");
         let mut captured =
             capture::saved_session(rex, &context, &view, lineage).with_context(saving)?;
         programs_seen.append(&mut captured.programs_seen);
         if worth_saving(&captured.saved, &context.home) {
-            let saved = captured
+            let SessionWithScrollback { saved, too_large } = captured
                 .with_scrollback(rex, &context.scrollback)
                 .with_context(saving)?;
+            fallbacks.extend(too_large.iter().map(|block| format!("{session}: {block}")));
             sessions.push(saved);
         }
     }
@@ -182,6 +186,11 @@ fn save_snapshot(
         .validate()
         .with_context(|| "the snapshot failed validation, so nothing was written")?;
     let path = SnapshotStore::new(state).write(&snapshot, settings.retention)?;
+    // Logged only now: until the snapshot is written, no block is saved,
+    // with scrollback or without.
+    for fallback in &fallbacks {
+        log::log_fallback(state, "save", fallback);
+    }
     upkeep::forget_what_is_not_live(state, &live).with_context(|| {
         format!(
             "saved {}, but then failed to forget blocks and sessions that are gone",
