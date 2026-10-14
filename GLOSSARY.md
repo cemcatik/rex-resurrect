@@ -102,6 +102,10 @@ A live session that restore created from a saved session. It belongs to the save
 A session plus every session restore has created from it, across any number of restarts. Only one session of a lineage is ever live.
 _Avoid_: version (easily confused with a snapshot)
 
+**Lineage map**:
+rexurrect's record of which lineage each restored session belongs to. A live session missing from it starts a lineage of its own.
+_Avoid_: lineage (that's the chain of sessions), lineage file
+
 **Startup window**:
 The first two minutes after restore creates a session, while its blocks' shells may still be starting. A save in it saves the session's blocks as restore created them, except a block the recorder has recorded a command in since.
 

@@ -241,11 +241,12 @@ Snapshots and rexurrect's own bookkeeping live in its state directory:
 2. otherwise `$XDG_STATE_HOME/rexurrect`;
 3. otherwise `~/.local/state/rexurrect`.
 
-It holds `snapshots/`, `latest.json` and `lineage.json`, which remembers which live session
-restore created from which saved one. Deleting `lineage.json` makes the next `restore` recreate
-sessions that are already live. `restored-instances` names the server instances restore has run
-in (the 32 most recent), and `restore.lock` makes restores take turns. `starting-sessions.json`
-holds what restore created each session with, for saves in its first two minutes.
+It holds `snapshots/`, `latest.json` and `lineage.json`, the lineage map, which remembers which
+live session restore created from which saved one. Deleting `lineage.json` makes the next
+`restore` recreate sessions that are already live. `restored-instances` names the server
+instances restore has run in (the 32 most recent), and `restore.lock` makes restores take turns.
+`starting-sessions.json` holds what restore created each session with, for saves in its first
+two minutes.
 `recorder/` holds one file per block with the last command the recorder recorded; only
 recorders write there. `default-commands.json` holds each block's last command when there's no
 recorder file: the last program a save saw running in it, else the command restore typed there.
