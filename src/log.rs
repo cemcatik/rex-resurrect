@@ -4,9 +4,10 @@
 //! each, so a failed autosave, which nobody watches, can still be diagnosed.
 //! Successful runs write nothing, with two exceptions:
 //! - auto-restore, which nobody watches either, logs every outcome;
-//! - save logs each block it saved without scrollback because Rex refused
-//!   to hand it over as too large: the save succeeds, but that block's
-//!   scrollback is lost.
+//! - save logs each block it starts saving without scrollback because Rex
+//!   refused to hand it over as too large: the save succeeds, but that
+//!   block's scrollback is lost. Once per block, not at every save while it
+//!   stays too large (see `too_large`).
 
 use std::fmt::Display;
 use std::fs::OpenOptions;

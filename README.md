@@ -167,9 +167,10 @@ Set it where `save` sees it, and run `autosave install` again afterwards, so aut
 
 A block whose scrollback is too large for Rex to hand over (Rex caps one response at 1 MB, which a
 few thousand lines of coloured output can fill) is saved without it, and the save carries on: it
-comes back in its directory with its command typed, but nothing above the prompt. Each such
-block adds a line to `rex-resurrect.log` naming its session and block. Clearing the block's
-scrollback (Cmd-K) lets the next save keep it again.
+comes back in its directory with its command typed, but nothing above the prompt. The first
+save to find a block's scrollback too large adds a line to `rex-resurrect.log` naming its session
+and block; later saves don't repeat it while it stays too large. Clearing the block's scrollback
+(Cmd-K) lets the next save keep it again.
 
 Without the recorder (you don't use zsh, or skipped that step), or in a block whose shell
 started before you loaded it, rex-resurrect falls back to the program running in the block at
@@ -223,8 +224,8 @@ say so.
 Every failure of `save` or `restore`, including each session that fails to restore, is also
 appended to `rex-resurrect.log` in the state directory, one line per failure starting with a
 UTC timestamp. Successful runs write nothing there, with two exceptions: auto-restore logs every
-outcome (see [Auto-restore](#auto-restore)), and save logs each block it saved without
-scrollback because the scrollback was too large. Once the log passes 1 MB (an autosave failing
+outcome (see [Auto-restore](#auto-restore)), and save logs each block whose scrollback it
+starts saving without because it's too large. Once the log passes 1 MB (an autosave failing
 every 15 minutes while Rex is quit gets it there in a few months), it keeps only its newest half.
 
 ### Which server
@@ -248,7 +249,8 @@ holds what restore created each session with, for saves in its first two minutes
 `recorder/` holds one file per block with the last command the recorder recorded; only
 recorders write there. `default-commands.json` holds each block's last command when there's no
 recorder file: the last program a save saw running in it, else the command restore typed there.
-Each save that writes a snapshot then removes the `recorder/` files and `default-commands.json`
+`too-large-scrollback.json` names the blocks the last save saved without scrollback because it
+was too large, so each is logged once rather than at every save. Each save that writes a snapshot then removes the `recorder/` files and `default-commands.json`
 entries of blocks that no longer exist, and the `lineage.json` and `starting-sessions.json`
 entries of sessions that no longer exist, so the directory doesn't grow forever. A save that
 fails or writes nothing removes nothing. `scrollback/` holds each snapshot's block scrollback,

@@ -156,6 +156,12 @@ pub struct TooLargeScrollback {
     error: RexError,
 }
 
+impl TooLargeScrollback {
+    pub fn block_id(&self) -> &str {
+        &self.block_id
+    }
+}
+
 impl fmt::Display for TooLargeScrollback {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(

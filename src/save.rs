@@ -19,6 +19,7 @@ use crate::startup::{Starting, StartingSessions};
 use crate::state::StateDir;
 use crate::store::SnapshotStore;
 use crate::timestamp::Timestamp;
+use crate::too_large::TooLargeBlocks;
 use crate::upkeep::{self, Live};
 
 /// Save's settings, from the environment.
@@ -148,6 +149,7 @@ fn save_snapshot(
     let mut live = Live::new();
     let mut sessions = Vec::new();
     let mut programs_seen = Vec::new();
+    // (session, block) for each block saved without its too-large scrollback.
     let mut fallbacks = Vec::new();
     for summary in rex.list_sessions()? {
         let view = rex.view_session(&summary.session_id)?;
@@ -162,7 +164,7 @@ fn save_snapshot(
             let SessionWithScrollback { saved, too_large } = captured
                 .with_scrollback(rex, &context.scrollback)
                 .with_context(saving)?;
-            fallbacks.extend(too_large.iter().map(|block| format!("{session}: {block}")));
+            fallbacks.extend(too_large.into_iter().map(|block| (session.clone(), block)));
             sessions.push(saved);
         }
     }
@@ -187,10 +189,27 @@ fn save_snapshot(
         .with_context(|| "the snapshot failed validation, so nothing was written")?;
     let path = SnapshotStore::new(state).write(&snapshot, settings.retention)?;
     // Logged only now: until the snapshot is written, no block is saved,
-    // with scrollback or without.
-    for fallback in &fallbacks {
-        log::log_fallback(state, "save", fallback);
+    // with scrollback or without. Only the blocks that start falling back
+    // with this save (see `too_large`).
+    let known = TooLargeBlocks::load(state);
+    for (session, block) in &fallbacks {
+        if !known.contains(block.block_id()) {
+            log::log_fallback(state, "save", &format!("{session}: {block}"));
+        }
     }
+    known
+        .replace(
+            fallbacks
+                .iter()
+                .map(|(_, block)| block.block_id().to_string())
+                .collect(),
+        )
+        .with_context(|| {
+            format!(
+                "saved {}, but then failed to remember the blocks whose scrollback was too large",
+                path.display()
+            )
+        })?;
     upkeep::forget_what_is_not_live(state, &live).with_context(|| {
         format!(
             "saved {}, but then failed to forget blocks and sessions that are gone",

@@ -213,3 +213,46 @@ fn a_save_that_fails_after_a_block_fell_back_logs_only_its_failure() {
     assert_eq!(entries.len(), 1, "only the failure: {entries:#?}");
     assert!(entries[0].contains("save failed: "), "{}", entries[0]);
 }
+
+/// A block's scrollback stays too large save after save until it's cleared,
+/// and autosave saves every 15 minutes, so the log says so once: when the
+/// block starts falling back. Once its scrollback is saved again, it's
+/// logged again if it grows too large again.
+#[test]
+fn a_block_whose_scrollback_stays_too_large_is_logged_once() {
+    let env = TestEnv::new();
+    let server = env.start_server();
+    let fixture = server.create_session("zz-stays", &[window(shell(env.mkdir("a")))]);
+    server.wait_for_pwds(&fixture);
+    let block = fixture.block_ids()[0];
+    let stub = RexStub::new(&env).fail_when_all("block.method", &[block, FORMAT], 1, TOO_LARGE);
+    let save_too_large = || {
+        env.resurrect(&server)
+            .path_prepend(stub.dir())
+            .arg("save")
+            .run()
+            .assert_success()
+    };
+
+    save_too_large();
+    save_too_large();
+    save_too_large();
+    let entries = env.log_entries();
+    assert_eq!(entries.len(), 1, "logged when it starts: {entries:#?}");
+
+    // Its scrollback is saved again (it was cleared), then grows too large
+    // again.
+    env.save(&server);
+    save_too_large();
+    let entries = env.log_entries();
+    assert_eq!(
+        entries.len(),
+        2,
+        "logged when it starts again: {entries:#?}"
+    );
+    assert!(
+        entries[1].contains("save fell back: ") && entries[1].contains(block),
+        "{}",
+        entries[1]
+    );
+}
